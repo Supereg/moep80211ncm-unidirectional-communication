@@ -1,5 +1,7 @@
-\documentclass{proc}
+\documentclass[a4paper, 11pt]{article}
 \usepackage[utf8]{inputenc}
+
+\newcommand{\ilc}[1]{\texttt{#1}} % inline-code
 
 \title{Proposal: Unidirectional NCM}
 \author{Andreas Bauer, Lion Steger}
@@ -9,13 +11,39 @@
 
     \maketitle
 
-    \section{Goals}\label{sec:goals}
-    Lists goals to achieve and how to achieve them (e.g.\ what code to refactor)
+    \section{Objective}\label{sec:objective}
+    As of now, the NCM module features bidirectional sessions only.
+    Our goal is to replace the current session handling with unidirectional session handling.
+    \\
+
+    For this change we need to consider the following components: the underlying random linear network coding library (\ilc{rlnc}),
+    session management (\ilc{session.c}) and generation management (\ilc{generation.c}).
+    \\
+
+    The \ilc{rlnc} library can presumably be used as is, by simply ignoring the reverse direction of the coding matrix.
+    Optionally we might consider taking steps to make use of the full coding matrix.
+
+    Session and generation management on the other hand is to be reengineered from scratch.
+    The rewrite will include designing a revised acknowledgment scheme to fit the unidirectional coding scheme.
 
     \section{Milestones}\label{sec:milestones}
-    List milestones.
+    \begin{enumerate}
+        \item Abstract formulation of encoding and acknowledgment scheme, drafting the changes to be made.
+        \item First prototype: Incorporates the formulated encoding and acknowledgement scheme.
+                Required functionality: Supports transmission of an ICMP Echo Request/Response.
+        \item Optional: Reengineer the rlnc instead of ignoring the reverse direction of the coding matrix.
+        \item Final version supporting full functionality of the bidirectional version.
+        \item Final presentation.
+    \end{enumerate}
 
-    \section{Timeline}\label{sec:timpelan}
-    List the timeline.
+    \section{Timeline}\label{sec:timeline}
+    \begin{itemize}
+        \item Beginning of February: Understanding the current code base using bidirectional sessions and refresh understanding of linear coding schemes
+        \item Mid February: Milestone 1.
+        \item Beginning of March: Implementation of the session and generation logic (Milestone 2.)
+        \item March 24th: Milestone: Final version ready (Milestone 4.)
+        \item March 31st Final deadline
+        \item Beginning of April: Prepare the final presentation (Milestone 5.)
+    \end{itemize}
 
 \end{document}
