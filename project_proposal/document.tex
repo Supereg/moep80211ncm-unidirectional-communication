@@ -29,21 +29,36 @@
     \section{Milestones}\label{sec:milestones}
     \begin{enumerate}
         \item Abstract formulation of encoding and acknowledgment scheme, drafting the changes to be made.
-        \item First prototype: Incorporates the formulated encoding and acknowledgement scheme.
-                Required functionality: Supports transmission of an ICMP Echo Request/Response.
+        \item Simulator: A designated executable, based on the \ilc{rlnc} library, which decouples our
+            research from the ncm modules, specifically not requiring network connectivity.
+
+            This allows us to have minimal overhead when researching and prototyping our implementation.
+            Additionally it serves well as a starting point for creating a deep understanding of the \ilc{rlnc} library.
+
+            Ideally, we can prototype all three operations within this decoupled project:
+            \ilc{encoding}, \ilc{decoding} and \ilc{recoding}/\ilc{forwarding}.
+            As ordered, they represent sub-milestones.
+        \item First prototype: Integrate our developments of the simulator into the ncm module,
+            replacing the current bidirectional implementation.
+
+            Required functionality: Supports transmission of an ICMP Echo Request/Response.
         \item Optional: Reengineer the rlnc instead of ignoring the reverse direction of the coding matrix.
-        \item Final version supporting full functionality of the bidirectional version.
+        \item Final version supporting full functionality as the current bidirectional version.
         \item Final presentation.
     \end{enumerate}
 
     \section{Timeline}\label{sec:timeline}
+    The following timeline highlights steps we want to have \textbf{completed} at the listed date.
+
     \begin{itemize}
-        \item Beginning of February: Understanding the current code base using bidirectional sessions and refresh understanding of linear coding schemes
-        \item Mid February: Milestone 1.
-        \item Beginning of March: Implementation of the session and generation logic (Milestone 2.)
-        \item March 24th: Milestone: Final version ready (Milestone 4.)
-        \item March 31st Final deadline
-        \item Beginning of April: Prepare the final presentation (Milestone 5.)
+        \item Beginning of February: Understanding the current code base using bidirectional sessions and refresh understanding of linear coding schemes.
+        \item Mid of February: Milestone 1.
+        \item End of February -- Beginning of March: Have a standalone simulator as described in Milestone 2.
+        \item Mid of March: Integration into the ncm module (Milestone 3.).
+        \item March 24th: Aim to have the final version ready a week early,
+            leaving time for last minute adjustments. (Milestone 5.).
+        \item March 31st: Final deadline.
+        \item Beginning of April: Prepare the final presentation (Milestone 6.)
     \end{itemize}
 
 \end{document}
