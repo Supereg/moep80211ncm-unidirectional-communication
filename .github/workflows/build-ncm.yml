@@ -37,10 +37,11 @@ jobs:
         run: mkdir ${{ env.build-directory }}
 
       - name: configure in ${{ env.build-directory }}
+        if: steps.cache.outputs.cache-hit != 'true'
         run: ../configure
         working-directory: ${{ env.build-directory }}
 
-      - name: make
+      - name: Build
         run: make
         working-directory: ${{ env.build-directory }}
 
