@@ -1,5 +1,5 @@
 
-SUBDIRS = libmoepgf libmoeprlnc libjsm ncm_simulator
+SUBDIRS = libmoepgf libmoeprlnc libjsm . ncm_simulator
 
 AM_CFLAGS = -O2 -Wall
 

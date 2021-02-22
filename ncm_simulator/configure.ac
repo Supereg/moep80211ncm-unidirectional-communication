@@ -15,6 +15,7 @@ AC_SUBST(AR_FLAGS, [cr]) # Fixes ar warning during make
 LT_INIT([disable-shared])
 
 PKG_CHECK_MODULES([LIBMOEP], [libmoep >= 2.0])
+PKG_CHECK_MODULES([CHECK], [check >= 0.10.0])
 
 AC_SEARCH_LIBS([exp], [m])
 AC_SEARCH_LIBS([timer_create], [rt])
@@ -35,6 +36,6 @@ AC_SUBST(LIBMOEPRLNC_CFLAGS)
 LIBMOEPRLNC_LIBS="\$(top_builddir)/../libmoeprlnc/libmoeprlnc.la"
 AC_SUBST(LIBMOEPRLNC_LIBS)
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])
 
 AC_OUTPUT

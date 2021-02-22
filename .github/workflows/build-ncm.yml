@@ -30,7 +30,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env.build-directory }}
-          key: ${{ runner.os }}-ncm
+          key: ${{ runner.os }}-ncm-v2
 
       - name: Prepare build directory # Create the ./build directory if it wasn't restored by the cache step
         if: steps.cache.outputs.cache-hit != 'true'
@@ -50,5 +50,12 @@ jobs:
         working-directory: ${{ env.build-directory }}
 
       - name: Run NCM Simulator
-        run: ./ncm_simulator
+        # we can't test anything contained in the main file of the simulator
+        # thus we just quickly run it without arguments to have a basic check its working.
+        run: ./src/ncm_simulator
+        working-directory: ${{ env.build-directory }}/ncm_simulator
+
+      - name: Test NCM Simulator
+        run: make check || cat tests/test-suite.log
+        # Don't run make check in root directory, as e.g. libmoepgf has some long running benchmark tests
         working-directory: ${{ env.build-directory }}/ncm_simulator
