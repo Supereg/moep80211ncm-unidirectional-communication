@@ -42,6 +42,6 @@ AC_SUBST(LIBJSM_LIBS)
 
 AC_CONFIG_FILES([Makefile])
 
-AC_CONFIG_SUBDIRS([libmoepgf libmoeprlnc libjsm])
+AC_CONFIG_SUBDIRS([libmoepgf libmoeprlnc libjsm ncm_simulator])
 
 AC_OUTPUT

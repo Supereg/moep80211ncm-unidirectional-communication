@@ -1,6 +1,3 @@
-
-SUBDIRS = ../libmoepgf ../libmoeprlnc
-
 AM_CFLAGS = -O2 -Wall
 
 bin_PROGRAMS = ncm_simulator

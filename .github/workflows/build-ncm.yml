@@ -1,4 +1,4 @@
-name: Build NCM
+name: Build
 
 on:
   push:
@@ -18,16 +18,35 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
+    env:
+      build-directory: ./build
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v2
 
-      - name: autoreconf
-        run: autoreconf -fi
-      - name: configure
-        run: ./configure
+      - name: Cache Build directory
+        uses: actions/cache@v2
+        with:
+          path: ${{ env.build-directory }}
+          key: ${{ runner.os }}-ncm
+
+      - name: Prepare build directory # Create the ./build directory if it wasn't restored by the cache step
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: mkdir ${{ env.build-directory }}
+
+      - name: configure in ${{ env.build-directory }}
+        run: ../configure
+        working-directory: ${{ env.build-directory }}
+
       - name: make
         run: make
+        working-directory: ${{ env.build-directory }}
 
-      - name: Run
+      - name: Run NCM
         run: ./ncm --help
+        working-directory: ${{ env.build-directory }}
+
+      - name: Run NCM Simulator
+        run: ./ncm_simulator
+        working-directory: ${{ env.build-directory }}/ncm_simulator

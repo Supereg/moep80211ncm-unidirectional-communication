@@ -37,6 +37,4 @@ AC_SUBST(LIBMOEPRLNC_LIBS)
 
 AC_CONFIG_FILES([Makefile])
 
-AC_CONFIG_SUBDIRS([../libmoepgf ../libmoeprlnc])
-
 AC_OUTPUT
