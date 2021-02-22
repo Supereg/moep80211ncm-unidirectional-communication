@@ -1,0 +1,33 @@
+name: Build NCM
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: andreasbauer/libmoep-debian
+      credentials:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: autoreconf
+        run: autoreconf -fi
+      - name: configure
+        run: ./configure
+      - name: make
+        run: make
+
+      - name: Run
+        run: ./ncm --help
