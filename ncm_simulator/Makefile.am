@@ -26,3 +26,6 @@ noinst_HEADERS += ../libmoepcommon/include/moepcommon/util/log.h
 noinst_HEADERS += ../libmoepcommon/include/moepcommon/util/mac.h
 noinst_HEADERS += ../libmoepcommon/include/moepcommon/util/maths.h
 noinst_HEADERS += ../libmoepcommon/include/moepcommon/util/timespec.h
+
+# a bit ugly, but works for now
+noinst_HEADERS += ../src/global.h

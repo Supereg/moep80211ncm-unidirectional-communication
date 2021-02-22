@@ -333,6 +333,8 @@ ncm_simulator_CPPFLAGS = $(LIBMOEP_CFLAGS) $(LIBMOEPCOMMON_CFLAGS) \
 	$(LIBMOEPGF_CFLAGS) $(LIBMOEPRLNC_CFLAGS)
 ncm_simulator_LDADD = $(LIBMOEP_LIBS) $(LIBMOEPGF_LIBS) \
 	$(LIBMOEPRLNC_LIBS)
+
+# a bit ugly, but works for now
 noinst_HEADERS = ../libmoepcommon/include/moepcommon/benchmark.h \
 	../libmoepcommon/include/moepcommon/list.h \
 	../libmoepcommon/include/moepcommon/list_sort.h \
@@ -345,7 +347,8 @@ noinst_HEADERS = ../libmoepcommon/include/moepcommon/benchmark.h \
 	../libmoepcommon/include/moepcommon/util/log.h \
 	../libmoepcommon/include/moepcommon/util/mac.h \
 	../libmoepcommon/include/moepcommon/util/maths.h \
-	../libmoepcommon/include/moepcommon/util/timespec.h
+	../libmoepcommon/include/moepcommon/util/timespec.h \
+	../src/global.h
 all: all-am
 
 .SUFFIXES:
