@@ -138,6 +138,14 @@ generation_window_size(const struct list_head *gl)
 	return delta(last->seq, first->seq, GENERATION_MAX_SEQ) + 1;
 }
 
+/**
+ * Writes a `generation_feedback` for every generation in our generation list into the
+ * given `ncm_hdr_coded` extension header.
+ * @param g The generation we sent the coded packet out.
+ * @param fb Pointer to the start of the array of `generation_feedback` in our `ncm_hdr_coded` header.
+ * @param maxlen Length of the array * sizeof(generation_feedback). (=count in bytes in our header).
+ * @return 0 on success, -1 on error.
+ */
 ssize_t
 generation_feedback(generation_t g, struct generation_feedback *fb,
 		size_t maxlen)
@@ -146,7 +154,7 @@ generation_feedback(generation_t g, struct generation_feedback *fb,
 	generation_t cur;
 
 	count = generation_window_size(g->gl);
-	if (count*sizeof(*fb) > maxlen) {
+	if (count*sizeof(*fb) > maxlen) { // TODO redundant check?
 		LOG(LOG_ERR, "buffer too small");
 		errno = ENOMEM;
 		return -1;
@@ -636,8 +644,11 @@ generation_advance(struct list_head *gl)
 		if (!generation_is_returned(first))
 			break;
 
+		// derive the next sequence number (we incrementally number
 		seq = (last->seq + 1) % (GENERATION_MAX_SEQ+1);
 		generation_reset(first, seq);
+		// move reset generations to the end of the list.
+		// our generation list is always ordered by seq ("active" generations at the start, reset at the end)
 		list_rotate_left(gl);
 	}
 
@@ -778,7 +789,6 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 		// increment counted received data
 		g->state.rx.data++;
 		if (g->gentype == FORWARD)
-			// we are a forwarder, so forward data
 			rtx_dec(g);
 	}
 	else {
@@ -817,6 +827,7 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 		return g;
 
 	do {
+	    // for receiver: as long as we have decodable data, forward the payload back to the OS
 		ret = tx_decoded_frame(s);
 	} while (ret == 0);
 
@@ -919,7 +930,7 @@ cb_ack(timeout_t t, u32 overrun, void *data)
 	if (overrun > 0)
 		LOG(LOG_ERR, "ack overrun = %d", overrun);
 
-	if (qdelay_packet_cnt() > 10) {
+	if (qdelay_packet_cnt() > 10) { // TODO magic constant, count of packets sent out but now received by ourselves.
 		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
 			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
 		return 0;

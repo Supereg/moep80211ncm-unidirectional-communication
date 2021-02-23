@@ -38,11 +38,21 @@ struct ncm_beacon_payload {
   */
 struct ncm_hdr_coded {
 	struct moep_hdr_ext hdr;
+	/// The session id consisting of sender and receiver mac address
+    /// (appended according to the definition of master and slave).
 	u8 sid[2*IEEE80211_ALEN];
+	/// The galois field type used. See `MOEPGF_TYPE`.
 	u8 gf:2;
+    /// Defines the generation window size. So the count of our generation list for the given session.
 	u8 window_size:6;
+	/// The generation sequence number of the generation this packet is sent for.
+	/// See `generation_seq`.
 	u16 seq;
+	/// Corresponds to the generation sequence number of the first generation
+	/// of the generation list for the given session. See `generation_lseq`.
 	u16 lseq;
+	/// One `generation_feedback` for every generation in our generation list.
+	/// Meaning the array equals to `window_size`.
 	struct generation_feedback fb[0];
 } __attribute__((packed));
 
