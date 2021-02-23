@@ -59,3 +59,7 @@ jobs:
         run: make check || cat tests/test-suite.log
         # Don't run make check in root directory, as e.g. libmoepgf has some long running benchmark tests
         working-directory: ${{ env.build-directory }}/ncm_simulator
+
+      - name: Valgrind NCM Simulator
+        run: CK_FORK=no valgrind --leak-check=full ./tests/check_simulator
+        working-directory: ${{ env.build-directory }}/ncm_simulator
