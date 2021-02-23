@@ -695,6 +695,7 @@ taph(moep_dev_t dev, moep_frame_t frame)
 	memcpy(&ether, etherptr, sizeof(ether));
 
 
+	// handle broadcast/multicast frames
 	if (is_bcast_mac(ether.ether_dhost)||is_mcast_mac(ether.ether_dhost)) {
 		moep_dev_frame_convert(cfg.rad.dev, frame);
 
@@ -715,23 +716,29 @@ taph(moep_dev_t dev, moep_frame_t frame)
 			moep_frame_add_moep_hdr_ext(frame,
 					MOEP_HDR_PCTRL, sizeof(*pctrl));
 
+
 		pctrl->type = htole16(be16toh(ether.ether_type));
 		moep_frame_get_payload(frame, &len);
 		pctrl->len = htole16(len);
 
+		// forward unprocessed frame
 		rad_tx(frame);
 		moep_frame_destroy(frame);
 		return 0;
 	}
 
+	// set sid to session id (chose lexicographically smaller value of shost/dhost)
 	if (0 > session_sid(sid, ether.ether_shost, ether.ether_dhost))
 		DIE("session_sid() failed: %s", strerror(errno));
 
+	// create new session if none can be found
 	if (!(s = session_find(sid)))
 		s = session_register(&cfg.session, NULL, sid);
 
+	// encode frame
 	session_encoder_add(s, frame);
 
+	// dont send frame??
 	set_tap_status();
 
 	moep_frame_destroy(frame);
@@ -760,12 +767,15 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		goto end;
 	}
 
+	// neighbor stuff, see exercises
 	(void) nb_update_seq(hdr->ta, hdr->txseq);
 
 	(void) moep_frame_get_payload(frame, &len);
 
+	// no simulator mode (per default we shouldnt be in simulator mode)
 	if (!cfg.sim.enabled) {
 		rt = moep_frame_radiotap(frame);
+		// remove FCS if present
 		if (rt->flags & IEEE80211_RADIOTAP_F_FCS) {
 			if (len < 4) {
 				LOG(LOG_ERR, "after clipping assumed FCS, "\
@@ -786,6 +796,7 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		bcast = (struct ncm_hdr_bcast *)
 			moep_frame_moep_hdr_ext(frame, NCM_HDR_BCAST);
 
+		// look up broadcast ID in known broadcasts and add if necessary
 		if (bcast && !bcast_known(bcast->id)) {
 			bcast_add(bcast->id);
 			rad_tx(frame);
@@ -794,6 +805,7 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		pctrl = (struct moep_hdr_pctrl *)
 			moep_frame_moep_hdr_ext(frame, MOEP_HDR_PCTRL);
 
+		// copy all data into a new ethernet frame
 		memcpy(ether.ether_dhost, hdr->ra, IEEE80211_ALEN);
 		memcpy(ether.ether_shost, hdr->ta, IEEE80211_ALEN);
 		ether.ether_type = htobe16(le16toh(pctrl->type));
@@ -803,21 +815,25 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		etherptr = moep_frame_ieee8023_hdr(frame);
 		memcpy(etherptr, &ether, sizeof(ether));
 
+		// give to OS
 		tap_tx(frame);
 		break;
 
-
+	// is coded packet, try to decode
 	case NCM_CODED:
 		coded = (struct ncm_hdr_coded *)
 			moep_frame_moep_hdr_ext(frame, NCM_HDR_CODED);
 
+		// create new session if none is found
 		if (!(s = session_find(coded->sid)))
 			s = session_register(&cfg.session, NULL, coded->sid);
 
+		// decode
 		session_decoder_add(s, frame);
 		break;
 
 	case NCM_BEACON:
+		// beacons used for link quality estimation (does not concern us)
 		bcnp = (void *)moep_frame_get_payload(frame, &len);
 
 		while (len/sizeof(*bcnp)) {

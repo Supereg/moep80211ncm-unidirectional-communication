@@ -759,6 +759,8 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	(void) generation_advance(gl);
 
 	if (!(g = generation_find(gl, hdr->seq))) {
+		// this is an acknowledgement that cannot be matched to any existing generation (?)
+		// and is therefore counted as a late acknowledgement (by returning NULL)
 		if (len > 0) {
 			g = list_first_entry(gl, struct generation, list);
 			timeout_settime(g->task.ack, TIMEOUT_FLAG_INACTIVE,
@@ -769,11 +771,14 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	}
 
 	if (len > 0) {
+		// no acknowledgement but data, try to deocde
 		ret = decoder_add(g, payload, len);
 		if (0 > ret)
 			DIE("decoder_add() failed: %d", ret);
+		// increment counted received data
 		g->state.rx.data++;
 		if (g->gentype == FORWARD)
+			// we are a forwarder, so forward data
 			rtx_dec(g);
 	}
 	else {
@@ -786,16 +791,20 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	if (len > 0) {
 		if (g->gentype == FORWARD) {
 			if (generation_is_decoded(g))
+				// send acknowlegment? only when generation is fully decoded?
 				timeout_settime(g->task.ack,
 					TIMEOUT_FLAG_INACTIVE,
 					timeout_usec(
 					GENERATION_ACK_MIN_TIMEOUT*1000,
 					GENERATION_ACK_INTERVAL*1000));
 			else
+				// foward only if not fully decoded?
 				timeout_settime(g->task.rtx,
 					TIMEOUT_FLAG_SHORTEN, rtx_timeout(g));
 		} else {
+			// we are the destination
 			if (generation_remote_flow_decoded(g))
+				// send acknowlegment?
 				timeout_settime(g->task.ack,
 					TIMEOUT_FLAG_INACTIVE,
 					timeout_usec(

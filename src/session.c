@@ -64,6 +64,7 @@ struct session_rtt {
 };
 
 struct session {
+	// pointer to session list head?
 	struct list_head list;
 	struct params_session	params;
 	struct jsm80211_module *jsm_module;
@@ -76,11 +77,13 @@ struct session {
 			u8 slave[IEEE80211_ALEN];
 		} hwaddr;
 	};
+	// MASTER SLAVE FORWARD
 	enum GENERATION_TYPE gentype;
 
 	struct session_state state;
 	struct session_tasks task;
 
+	// generations list: session can have multiple generations
 	struct list_head gl;
 };
 
@@ -433,6 +436,7 @@ session_decoder_add(struct session *s, moep_frame_t frame)
 	payload = moep_frame_get_payload(frame, &len);
 
 	if (NULL == generation_decoder_add(&s->gl, payload, len, coded)) {
+		// generation could not be found, this is a lost ack/data packet
 		if (len > 0)
 			s->state.rx.late_data++;
 		else
@@ -480,8 +484,7 @@ session_redundancy(session_t s)
 			sm = ls_quality(slave, master, NULL, NULL);
 
 			return max((1.0-ms)/rs,(1.0-sm)/rm);
-		}
-		else {
+		} else {
 			if (!(hwaddr = session_find_remote_address(s))) {
 				LOG(LOG_WARNING, "uplink_quality(): unable to find remote "
 					"address");
