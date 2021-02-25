@@ -1,13 +1,13 @@
+# moep80211ncm (network coding module)
 
-moep80211ncm (network coding module)
-====================================
+[![Build & Test](https://github.com/Supereg/moep80211ncm-unidirectional-communication/actions/workflows/ncm.yml/badge.svg)](https://github.com/Supereg/moep80211ncm-unidirectional-communication/actions/workflows/ncm.yml)
+[![Coverage Status](https://coveralls.io/repos/github/Supereg/moep80211ncm-unidirectional-communication/badge.svg?branch=master&t=dQb2mQ)](https://coveralls.io/github/Supereg/moep80211ncm-unidirectional-communication?branch=master)
 
 The ncm daemon creates a coded mesh network - at least, it will do so in the
 future.
 
 
-Dependencies
-------------
+## Dependencies
 
 The ncm depends on the libmoep injection library. If not done so far, install
 libmoep:
@@ -30,8 +30,7 @@ submodule libmoepgf:
 	git submodule update
 
 
-Installation
-------------
+## Installation
 
 To compile and run the moep80211ncm type
 
