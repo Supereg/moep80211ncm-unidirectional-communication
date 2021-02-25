@@ -78,7 +78,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           # FIXME coverage file contains version, action might break with increasing the version number
-          flag-name: ./build/ncm_simulator/moep80211-ncm-simulator-1.0-coverage.info
+          path-to-lcov: ./build/ncm_simulator/moep80211-ncm-simulator-1.0-coverage.info
 
       - name: Valgrind NCM Simulator
         if: matrix.configuration == 'debug' # Only use valgrind with compiler optimizations disabled
