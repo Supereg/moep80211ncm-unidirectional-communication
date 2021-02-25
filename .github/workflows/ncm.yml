@@ -9,7 +9,7 @@ on:
       - master
 
 jobs:
-  build:
+  linux:
     runs-on: ubuntu-latest
 
     container:
@@ -21,24 +21,31 @@ jobs:
     env:
       build-directory: ./build
 
+    strategy:
+      matrix:
+        # Defines our two build configurations.
+        # - release: "Standard" configuration enabling compiler optimizations, just as we would deliver it.
+        # - debug: Compiles a debug build, disabling compiler optimizations and enabling code coverage collection.
+        configuration: [release, debug]
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v2
 
-      - name: Cache Build directory
-        id: cache
-        uses: actions/cache@v2
-        with:
-          path: ${{ env.build-directory }}
-          key: ${{ runner.os }}-ncm-v2
+      # In theory autoreconf is needed, though we run in an very specific environment, and excluding it saves some run minutes
+      # - name: autoreconf
+      #   run: autoreconf -i
 
-      - name: Prepare build directory # Create the ./build directory if it wasn't restored by the cache step
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Prepare build directory # Create the ./build directory
         run: mkdir ${{ env.build-directory }}
 
-      - name: configure in ${{ env.build-directory }}
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: configure release
+        if: matrix.configuration == 'release'
         run: ../configure
+        working-directory: ${{ env.build-directory }}
+      - name: configure debug
+        if: matrix.configuration == 'debug'
+        run: ../configure --enable-code-coverage # enables code coverage and -O0
         working-directory: ${{ env.build-directory }}
 
       - name: Build
@@ -50,16 +57,31 @@ jobs:
         working-directory: ${{ env.build-directory }}
 
       - name: Run NCM Simulator
-        # we can't test anything contained in the main file of the simulator
+        # we can't test anything contained in the main file of the simulator,
         # thus we just quickly run it without arguments to have a basic check its working.
         run: ./src/ncm_simulator
+        timeout-minutes: 1 # we might make it interactive in the future, protect the action against running forever
         working-directory: ${{ env.build-directory }}/ncm_simulator
 
       - name: Test NCM Simulator
         run: make check || cat tests/test-suite.log
-        # Don't run make check in root directory, as e.g. libmoepgf has some long running benchmark tests
+        # Don't run 'make check' in root directory, as e.g. libmoepgf has some long running benchmark tests
         working-directory: ${{ env.build-directory }}/ncm_simulator
 
+      - name: Collect Code Coverage Capture
+        if: matrix.configuration == 'debug'
+        run: make code-coverage-capture
+
+      - name: Report to Coveralls
+        if: matrix.configuration == 'debug'
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # FIXME coverage file contains version, action might break with increasing the version number
+          flag-name: ./build/ncm_simulator/moep80211-ncm-simulator-1.0-coverage.info
+
       - name: Valgrind NCM Simulator
+        if: matrix.configuration == 'debug' # Only use valgrind with compiler optimizations disabled
+        # CK_FORK=no so we don't report about "still reachable" of check framework: https://libcheck.github.io/check/doc/check_html/check_4.html#Finding-Memory-Leaks
         run: CK_FORK=no valgrind --leak-check=full ./tests/check_simulator
         working-directory: ${{ env.build-directory }}/ncm_simulator

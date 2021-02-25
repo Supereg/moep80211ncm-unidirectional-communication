@@ -1,4 +1,6 @@
 
+@CODE_COVERAGE_RULES@
+
 TESTS = check_simulator
 check_PROGRAMS = check_simulator
 

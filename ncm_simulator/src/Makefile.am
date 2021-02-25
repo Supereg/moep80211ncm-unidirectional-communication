@@ -1,5 +1,7 @@
 AM_CFLAGS = -O2 -Wall
 
+@CODE_COVERAGE_RULES@
+
 lib_LTLIBRARIES = libsimulator.la
 
 libsimulator_la_SOURCES  = generation.c
