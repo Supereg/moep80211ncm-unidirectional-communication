@@ -71,6 +71,7 @@ jobs:
       - name: Collect Code Coverage Capture
         if: matrix.configuration == 'debug'
         run: make code-coverage-capture
+        working-directory: ${{ env.build-directory }}/ncm_simulator
 
       - name: Report to Coveralls
         if: matrix.configuration == 'debug'
