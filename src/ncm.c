@@ -396,7 +396,7 @@ parse_opt(int key, char *arg, struct argp_state *state)
 		break;
 	case 'F':
 		size = atoi(arg);
-		switch (size) {
+		switch (size) { // TODO this breaks all macro based usage of gftype
 		case 2:
 			cfg->session.gftype = MOEPGF2;
 			break;

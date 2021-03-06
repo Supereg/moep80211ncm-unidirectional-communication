@@ -21,4 +21,11 @@ Suite* generation_suite(void);
  */
 Suite* session_suite(void);
 
+// some test might expect those specific values, so be aware when changing them!
+#define CHECK_GF_TYPE MOEPGF16
+#define CHECK_GENERATION_SIZE 4
+#define CHECK_GENERATION_WINDOW_SIZE 1 // TODO to be adjusted
+#define CHECK_MAX_PDU 1024
+#define CHECK_ALIGNMENT 32
+
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_CHECK_SIMULATOR_H

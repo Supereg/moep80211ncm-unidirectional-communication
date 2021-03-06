@@ -10,10 +10,10 @@ struct slot {
 } __attribute__ ((packed));
 
 struct length {
-        unsigned int max;
+    unsigned int max;
 	unsigned int max_data;
-        unsigned int coeff;
-        unsigned int cc;
+	unsigned int coeff;
+	unsigned int cc;
 };
 
 struct rank {
