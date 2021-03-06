@@ -12,7 +12,7 @@
 #define EGENINVAL	-3	// invalid function for generation type
 #define EGENNOMORE	-4	// no more packets available 
 				// (everything has been returned)
-#define EGENFAIL	-5	// general error has occured
+#define EGENFAIL	-5	// general error has occurred
 
 enum generation_taskno {
 	GEN_TASK_RTX = 0,

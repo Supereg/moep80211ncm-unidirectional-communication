@@ -135,7 +135,7 @@ generation_window_size(const struct list_head *gl)
 {
 	generation_t first = list_first_entry(gl, struct generation, list);
 	generation_t last = list_last_entry(gl, struct generation, list);
-	return delta(last->seq, first->seq, GENERATION_MAX_SEQ) + 1;
+	return delta(last->seq, first->seq, GENERATION_MAX_SEQUENCE_NUMBER) + 1;
 }
 
 /**
@@ -645,7 +645,7 @@ generation_advance(struct list_head *gl)
 			break;
 
 		// derive the next sequence number (we incrementally number
-		seq = (last->seq + 1) % (GENERATION_MAX_SEQ+1);
+		seq = (last->seq + 1) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
 		generation_reset(first, seq);
 		// move reset generations to the end of the list.
 		// our generation list is always ordered by seq ("active" generations at the start, reset at the end)
@@ -754,12 +754,12 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 
 	g = list_first_entry(gl, struct generation, list);
 	s = generation_get_session(g);
-	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQ);
+	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQUENCE_NUMBER);
 
 	if (delta > 128)//FIXME
 		delta = 0;
 
-	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQ+1);
+	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
 
 	list_for_each_entry(g, gl, list) {
 		if (g->seq == maxseq)
