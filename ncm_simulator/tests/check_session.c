@@ -131,15 +131,10 @@ START_TEST(test_session_coding_simple_two_nodes) {
     os_frame_entry_t* received;
 
     source = session_register(SOURCE, address_a, address_b);
-    printf("line1\n");
     ck_assert_int_eq(source->type, SOURCE);
-    printf("line2\n");
-    destination = session_register(DESTINATION, address_a, address_b); // TODO switch addresses
-    printf("line3\n");
+    destination = session_register(DESTINATION, address_a, address_b);
     ck_assert_int_eq(destination->type, DESTINATION);
-    printf("line4\n");
-    // TODO ck_assert_mem_eq(&source->session_id, &destination->session_id, sizeof(session_id));
-    printf("line5\n");
+    ck_assert_mem_eq(&source->session_id, &destination->session_id, sizeof(session_id));
 
     session_encoder_add(source, (u8*) example0, strlen(example0));
 
