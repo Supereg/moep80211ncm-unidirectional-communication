@@ -2,15 +2,16 @@
 // Created by Andreas Bauer on 22.02.21.
 //
 
+#include "generation.h"
+
 #include <assert.h>
 
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
-
 #include <moeprlnc/rlnc.h>
 
 #include "session.h"
-#include "generation.h"
+
 
 // TODO document
 struct generation {

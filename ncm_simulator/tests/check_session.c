@@ -8,13 +8,14 @@
 // Created by Andreas Bauer on 22.02.21.
 //
 
+#include "check_simulator.h"
+
 #include <stdio.h>
 #include <check.h>
 
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
 
-#include "check_simulator.h"
 #include "../src/session.h"
 #include "../src/session.c"
 

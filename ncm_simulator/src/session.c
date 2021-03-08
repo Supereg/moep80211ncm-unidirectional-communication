@@ -2,13 +2,14 @@
 // Created by Andreas Bauer on 22.02.21.
 //
 
+#include "global.h"
+#include "session.h"
+
 #include <assert.h>
 
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
 
-#include "global.h"
-#include "session.h"
 #include "generation.h"
 
 #define LOG_SESSION(loglevel, session, message, ...) \
