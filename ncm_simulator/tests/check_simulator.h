@@ -5,6 +5,8 @@
 #ifndef MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_CHECK_SIMULATOR_H
 #define MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_CHECK_SIMULATOR_H
 
+#include <check.h>
+
 /**
  * The Check `Suite` packaging everything related to the `generation.c` module.
  * Refer to the `check_generation.c` file for the individual test case definitions.
