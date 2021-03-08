@@ -90,6 +90,10 @@ START_TEST(test_session_creation_and_find) {
     session_t* session;
     session_t* created_session;
     session_t* tmp_session;
+    session_id expected_id;
+
+    memcpy(expected_id.source_address, address_a, IEEE80211_ALEN);
+    memcpy(expected_id.destination_address, address_b, IEEE80211_ALEN);
 
     // testing that session is not yet created
     session = session_find(SOURCE, address_a, address_b);
@@ -99,7 +103,7 @@ START_TEST(test_session_creation_and_find) {
     created_session = session_register(SOURCE, address_a, address_b);
     ck_assert_msg(created_session != NULL, "Failed session creation!");
     ck_assert_int_eq(created_session->type, SOURCE);
-    // TODO do session id compare
+    ck_assert_mem_eq(&created_session->session_id, &expected_id, sizeof(session_id));
 
     // calling session_register on an registered session should just return that
     tmp_session = session_register(SOURCE, address_a, address_b);
