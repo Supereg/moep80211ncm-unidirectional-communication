@@ -143,13 +143,12 @@ session_t* session_register(enum SESSION_TYPE session_type, const u8* ether_sour
 
     for (int i = 0; i < session_context->generation_window_size; i++) {
         generation_init(
-                &session->generations_list,
-                session_type,
-                session_context->moepgf_type,
-                session_context->generation_size,
-                MAX_PDU_SIZE,
-                MEMORY_ALIGNMENT
-                );
+            &session->generations_list,
+            session_type,
+            session_context->moepgf_type,
+            session_context->generation_size,
+            MAX_PDU_SIZE,
+            MEMORY_ALIGNMENT);
     }
 
     list_add(&session->list, &session_list);

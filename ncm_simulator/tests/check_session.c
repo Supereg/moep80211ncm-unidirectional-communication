@@ -129,11 +129,17 @@ START_TEST(test_session_coding_simple_two_nodes) {
     session_t* source;
     session_t* destination;
 
+    int ret;
+
     char* example0 = "Hello World!";
     char* example1 = "Hello World, whats up with you all?";
     char* example2 = "Hello World2!";
 
     os_frame_entry_t* received;
+
+    // those configurations below are expected to successfully run the unit test
+    context->generation_size = 2;
+    context->generation_window_size = 2;
 
     source = session_register(SOURCE, address_a, address_b);
     ck_assert_int_eq(source->type, SOURCE);
@@ -141,7 +147,8 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ck_assert_int_eq(destination->type, DESTINATION);
     ck_assert_mem_eq(&source->session_id, &destination->session_id, sizeof(session_id));
 
-    session_encoder_add(source, (u8*) example0, strlen(example0));
+    ret = session_encoder_add(source, (u8*) example0, strlen(example0));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
 
     forward_frames(destination, 1, true);
 
@@ -149,8 +156,12 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ck_assert_int_eq(received->length, strlen(example0));
     ck_assert_str_eq((char*) received->payload, example0);
 
-    session_encoder_add(source, (u8*) example1, strlen(example1));
-    session_encoder_add(source, (u8*) example2, strlen(example2));
+    ret = session_encoder_add(source, (u8*) example1, strlen(example1));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
+
+    // adding the third frame, will test if generation_list_advance works properly
+    ret = session_encoder_add(source, (u8*) example2, strlen(example2));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
 
     forward_frames(destination, 2, true);
 
@@ -163,6 +174,8 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ck_assert_str_eq((char*) received->payload, example2);
 }
 END_TEST
+
+/* -------------------------------------------------------------------------------------------- */
 
 Suite* session_suite() {
     Suite* suite;
@@ -294,12 +307,14 @@ static os_frame_entry_t * peek_os_frame_entry(int index) {
 }
 
 static void forward_frames(session_t* destination, int count, bool forward_from_source) {
+    int ret;
     rtx_frame_entry_t* entry;
 
     while (count > 0 ) {
         entry = pop_rtx_frame_entry();
 
-        session_decoder_add(destination, entry->payload, entry->length, forward_from_source);
+        ret = session_decoder_add(destination, entry->payload, entry->length, forward_from_source);
+        ck_assert_int_eq(ret, EXIT_SUCCESS);
         free(entry);
 
         count--;

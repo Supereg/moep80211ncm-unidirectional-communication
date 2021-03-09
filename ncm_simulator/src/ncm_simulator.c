@@ -7,10 +7,8 @@
 
 #include <moepcommon/util.h>
 
-#include <moeprlnc/rlnc.h>
 #include <moepgf/moepgf.h>
 
-#include "generation.h"
 #include "moep/types.h"
 #include "session.h"
 #include "global.h"
@@ -53,7 +51,6 @@ int os_frame(session_t* session, u8* payload, size_t length) {
 }
 
 int main() {
-
     static u8 sender_address[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
     static u8 receiver_address[IEEE80211_ALEN] = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
 

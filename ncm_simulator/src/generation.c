@@ -13,7 +13,9 @@
 #include "session.h"
 
 
-// TODO document
+/**
+ * Struct holding all state information for a generation.
+ */
 struct generation {
     struct list_head list;
     /**
@@ -30,16 +32,19 @@ struct generation {
     /**
      * The session type of the associated session (See `SESSION_TYPE`):
      */
-    enum SESSION_TYPE session_type;
-
-    // TODO do we need a similar thing to the state struct?
+    const enum SESSION_TYPE session_type;
 
     rlnc_block_t rlnc_block;
 
     /**
      * The maximum frame size possible to store in our coding matrix.
      */
-    size_t max_pdu_size;
+    const size_t max_pdu_size;
+    /**
+     * Represents the size of our generation aka. the maximum dimension of our coding matrix
+     * aka. the max amount of frames to be stored in this generation.
+     */
+    const int generation_size;
 
     /**
      * The next_pivot defines the next free pivot index of the coding matrix.
@@ -48,20 +53,23 @@ struct generation {
      * For sending nodes (SOURCE) this will define the next pivot used to store the next source packet.
      */
     int next_pivot;
-    int coding_matrix_dimension;
 
-    // TODO ACK timeout?
+    /**
+     * This counter reflects the remote dimension of our session,
+     * at least for what we have received an acknowledgment for.
+     */
+    int remote_dimension;
 };
 
 // TODO instead of passing everything as an a distinct argument we could just pass
 //  the whole `session_subsystem_context`, containing pretty much all values [could create unwanted coupling though?]
 generation_t* generation_init(
-        struct list_head* generation_list,
-        enum SESSION_TYPE session_type,
-        enum MOEPGF_TYPE moepgf_type,
-        int generation_size,
-        size_t max_pdu_size,
-        size_t alignment) {
+    struct list_head* generation_list,
+    enum SESSION_TYPE session_type,
+    enum MOEPGF_TYPE moepgf_type,
+    int generation_size,
+    size_t max_pdu_size,
+    size_t alignment) {
     struct generation* generation;
 
     struct generation* previous;
@@ -71,6 +79,7 @@ generation_t* generation_init(
     if (!list_empty(generation_list)) {
         previous = list_last_entry(generation_list, struct generation, list);
         sequence_number = previous->sequence_number + 1;
+        // TODO ensure we don't init more generations than we have sequence numbers
     }
 
     generation = calloc(1, sizeof(struct generation));
@@ -84,13 +93,14 @@ generation_t* generation_init(
         DIE("Failed to rlnc_block_init(): %s", strerror(errno));
     }
 
-    generation->sequence_number = sequence_number;
-    generation->session_type = session_type;
+    *((enum SESSION_TYPE*) &generation->session_type) = session_type;
+    *((size_t*) &generation->max_pdu_size) = max_pdu_size;
+    *((int*) &generation->generation_size) = generation_size;
 
-    generation->max_pdu_size = max_pdu_size;
+    generation->sequence_number = sequence_number;
 
     generation->next_pivot = 0;
-    generation->coding_matrix_dimension = generation_size;
+    generation->remote_dimension = 0;
 
     list_add_tail(&generation->list, generation_list);
 
@@ -111,12 +121,81 @@ void generation_list_free(struct list_head *generation_list) {
     }
 }
 
+void generation_reset(generation_t* generation, u16 new_sequence_number) {
+    int ret;
+
+    ret = rlnc_block_reset(generation->rlnc_block);
+    if (ret != 0) {
+        DIE("Failed to reset rlnc block, when trying to reset generation!");
+    }
+
+    generation->sequence_number = new_sequence_number;
+
+    generation->next_pivot = 0;
+    generation->remote_dimension = 0;
+}
+
 
 int generation_space_remaining(const generation_t* generation) {
     int size;
-    size = generation->coding_matrix_dimension - generation->next_pivot;
-    assert(size >= 0 && size <= generation->coding_matrix_dimension && "generation space is out of bounds");
+    size = generation->generation_size - generation->next_pivot;
+    assert(size >= 0 && size <= generation->generation_size && "generation space is out of bounds");
     return size;
+}
+
+static bool generation_is_complete(const generation_t* generation) {
+    switch (generation->session_type) {
+        case SOURCE:
+        case DESTINATION:
+            return generation->remote_dimension >= generation->generation_size;
+        case INTERMEDIATE:
+            // TODO incorporate a ACK scheme in order to support forwarding nodes
+            LOG(LOG_INFO, "Intermediate nodes are currently unsupported!");
+            exit(-11);
+    }
+
+    DIE("Reached unsupported session type!");
+}
+
+
+/**
+ * Traverses through the whole list of generations to clean out completed generations
+ * (generations which were sent out and successfully received at the other end).
+ * The generation list is ordered by generation state, generations which are currently worked on
+ * are at the beginning (as we add new source frames iteratively), thus unused generations are at the end.
+ * Once a generation (from the beginning of the list) is reset, the generation list is shifted accordingly,
+ * such that the freed generations (after getting the next free sequence number set) are at the end of the list.
+ *
+ * @param generation_list - The list of `generation`s to traverse.
+ * @return Returns the amount of generations which got reset as they were complete (and thus got moved to the beginning of the list).
+ */
+static int generation_list_advance(struct list_head* generation_list) {
+    generation_t* next;
+    generation_t* last;
+    int next_sequence_number;
+    int advance_count = 0;
+
+    for (;;) {
+        next = list_first_entry(generation_list, struct generation, list);
+        last = list_last_entry(generation_list, struct generation, list);
+
+        if (!generation_is_complete(next)) {
+            // TODO there >might< be an edge case where multiple completed generations are not freed
+            //  if they are preceded by a non completed generation (as we always [and have always] shifted the generations in order).
+            //  Not sure about the real world impact though. Should we mitigate that, we would need to ensure we don't rely on monotonous sequence numbering!
+            break;
+        }
+
+        next_sequence_number = (last->sequence_number + 1) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
+        // reset the given generation with initializing it with a new sequence number
+        generation_reset(next, next_sequence_number);
+        // moves the reset generation to the end of the list
+        list_rotate_left(generation_list);
+
+        advance_count++;
+    }
+
+    return advance_count;
 }
 
 static NCM_GENERATION_STATUS generation_encoder_add(generation_t* generation, u8* buffer, size_t length) {
@@ -150,6 +229,7 @@ NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_l
     NCM_GENERATION_STATUS status;
 
     list_for_each_entry(generation, generation_list, list) {
+        // TODO encoded packets must address one specific generation (to be addressed via a custom extension header)
         if (generation_space_remaining(generation) == 0) {
             continue;
         }
@@ -165,7 +245,7 @@ NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_l
     return GENERATION_UNAVAILABLE;
 }
 
-static NCM_GENERATION_STATUS generation_next_encoded_frame(const generation_t* generation, size_t max_length, u8* buffer, size_t* length_encoded) {
+static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u8* buffer, size_t* length_encoded) {
     int flags = 0;
     ssize_t length;
 
@@ -190,14 +270,28 @@ static NCM_GENERATION_STATUS generation_next_encoded_frame(const generation_t* g
 
     *length_encoded = length;
 
+    // TODO we currently assume acknowledgment of frames, once they are sent out.
+    //   as we use RLNC_STRUCTURED and no forwarders currently, this works for now.
+    generation->remote_dimension += 1;
+
     return GENERATION_STATUS_SUCCESS;
 }
 
-NCM_GENERATION_STATUS generation_list_next_encoded_frame(const struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_encoded) {
+NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_encoded) {
     generation_t* generation;
+    NCM_GENERATION_STATUS status;
+
     generation = list_first_entry(generation_list, generation_t, list);
     // TODO we would need to send out encoded frames for all not yet ACK generations, not just the "next" one.
-    return generation_next_encoded_frame(generation, max_length, buffer, length_encoded);
+    status = generation_next_encoded_frame(generation, max_length, buffer, length_encoded);
+
+    // generation_list_advance is to be called once we update any of the configuration state
+    // (e.g. if we receive ACK/get a update remote dimension information),
+    // as this may render a generation complete => thus we can reset it.
+    // TODO this currently assumes instant ACKs, thus we will probably need to move this statement!
+    (void) generation_list_advance(generation_list);
+
+    return status;
 }
 
 static NCM_GENERATION_STATUS generation_next_decoded(generation_t* generation, size_t max_length, u8* buffer, size_t* length_decoded) {
@@ -236,9 +330,10 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
     status = generation_next_decoded(generation, max_length, buffer, length_decoded);
 
     if (status == GENERATION_FULLY_TRAVERSED) { // generation is fully decoded
-        // TODO advance generation list => call generation_list_next_decoded again if it changed anything
-        // TODO return generation_list_next_decoded(generation_list, max_length, buffer, length_decoded);
-        return GENERATION_FULLY_TRAVERSED;
+        int advanced_generations = generation_list_advance(generation_list);
+        if (advanced_generations > 0) {
+            return generation_list_next_decoded(generation_list, max_length, buffer, length_decoded);
+        }
     }
 
     return status;
@@ -261,6 +356,9 @@ static NCM_GENERATION_STATUS generation_decoder_add_decoded(generation_t* genera
         LOG(LOG_ERR, "rlnc_block_decode() failed!");
         return GENERATION_GENERIC_ERROR;
     }
+
+    // we know for a fact, the remote dimension must equal to the rank of what we have received
+    generation->remote_dimension = rlnc_block_rank_decode(generation->rlnc_block);
 
     return GENERATION_STATUS_SUCCESS;
 }

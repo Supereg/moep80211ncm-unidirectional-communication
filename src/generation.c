@@ -756,12 +756,17 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	s = generation_get_session(g);
 	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQUENCE_NUMBER);
 
-	if (delta > 128)//FIXME
+	if (delta > 128)//FIXME TODO magic constant GENERATION_SIZE
 		delta = 0;
 
+	// TODO: what the hell?
+	//   delta is basically the window size on the remote end (lseq=current smallest sequence number on remote)
+    //   as we (in theory) assume matching window sizes, max sequence size matches g->seq?
 	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
 
 	list_for_each_entry(g, gl, list) {
+	    // TODO following assumptions above, this basically assumes all generations completed prior to the current
+	    //   one we received a coded packet for(?)
 		if (g->seq == maxseq)
 			break;
 		generation_assume_complete(g);

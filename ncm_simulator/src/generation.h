@@ -105,7 +105,7 @@ int generation_space_remaining(const generation_t* generation);
 NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_list, u8* buffer, size_t length);
 
 // TODO docs
-NCM_GENERATION_STATUS generation_list_next_encoded_frame(const struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_encoded);
+NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_encoded);
 
 /**
  * Used to retrieve the next decodable frame of the list of generations.
