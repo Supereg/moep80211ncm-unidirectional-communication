@@ -50,8 +50,8 @@ struct generation_packet_counter {
 };
 
 struct generation_flowstate {
-	int	sdim;	// source dimension
-	int	ddim;	// destination dimension
+	int	sdim;	// source dimension (TODO source like in the sense of source frame aka encoder dimension)
+	int	ddim;	// destination dimension TODO decoder dimension?
 	int	lock;	// lock bit
 };
 

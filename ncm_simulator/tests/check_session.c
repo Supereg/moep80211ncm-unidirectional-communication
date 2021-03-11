@@ -19,10 +19,13 @@
 #include "../src/session.h"
 #include "../src/session.c"
 
-static u8 address_a[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
-static u8 address_b[IEEE80211_ALEN] = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
+static u8 address_src[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
+static u8 address_intermediate[IEEE80211_ALEN] = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
+static u8 address_dst[IEEE80211_ALEN] = {0x43, 0x43, 0x43, 0x43, 0x43, 0x43};
 
-session_subsystem_context* context;
+session_subsystem_context_t* src_context;
+session_subsystem_context_t* intermediate_context;
+session_subsystem_context_t* dst_context;
 
 /**
  * Used to store a call to the `rtx_callback` in order to make it available to the test case.
@@ -32,6 +35,7 @@ typedef struct rtx_frame_entry {
     int index;
 
     session_t* session;
+    coded_packet_metadata_t metadata;
     u8 payload[CHECK_MAX_PDU];
     size_t length;
 } rtx_frame_entry_t;
@@ -45,14 +49,15 @@ typedef struct os_frame_entry {
     int index;
 
     session_t* session;
+    u16 ether_type;
     u8 payload[CHECK_MAX_PDU];
     size_t length;
 } os_frame_entry_t;
 static LIST_HEAD(os_frame_entries);
 
 // Bunch of forward declaration for the whole "callback storage" API
-static int check_rtx_frame(session_t* session, u8* payload, size_t length);
-static int check_os_frame(session_t* session, u8* payload, size_t length);
+static int check_rtx_frame(session_subsystem_context_t* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
+static int check_os_frame(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length);
 static rtx_frame_entry_t* pop_rtx_frame_entry(); // Don't forget to free(...) after pop
 static os_frame_entry_t * pop_os_frame_entry(); // Don't forget to free(...) after pop
 static rtx_frame_entry_t* peek_rtx_frame_entry(int index);
@@ -67,12 +72,27 @@ static void free_os_frame_entries();
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_session_setup() {
-    context = init_session_subsystem();
-    context->generation_size = CHECK_GENERATION_SIZE;
-    context->generation_window_size = CHECK_GENERATION_WINDOW_SIZE;
-    context->moepgf_type = CHECK_GF_TYPE;
-    context->rtx_callback = check_rtx_frame;
-    context->os_callback = check_os_frame;
+    src_context = session_subsystem_init(
+        CHECK_GENERATION_SIZE,
+        CHECK_GENERATION_WINDOW_SIZE,
+        CHECK_GF_TYPE,
+        address_src,
+        check_rtx_frame,
+        check_os_frame);
+    intermediate_context = session_subsystem_init(
+        CHECK_GENERATION_SIZE,
+        CHECK_GENERATION_WINDOW_SIZE,
+        CHECK_GF_TYPE,
+        address_intermediate,
+        check_rtx_frame,
+        check_os_frame);
+    dst_context = session_subsystem_init(
+        CHECK_GENERATION_SIZE,
+        CHECK_GENERATION_WINDOW_SIZE,
+        CHECK_GF_TYPE,
+        address_dst,
+        check_rtx_frame,
+        check_os_frame);
 }
 
 /**
@@ -82,44 +102,61 @@ void test_session_setup() {
 void test_session_teardown() {
     free_rtx_frame_entries();
     free_os_frame_entries();
-    close_session_subsystem();
+
+    session_subsystem_close(src_context);
+    session_subsystem_close(intermediate_context);
+    session_subsystem_close(dst_context);
 }
 
 /* ----------------------------------- Basic Setup Tests ----------------------------------- */
 
 START_TEST(test_session_creation_and_find) {
     session_t* session;
-    session_t* created_session;
+    session_t* created_src_session;
+    session_t* created_dst_session;
+    session_t* created_intermediate_session;
     session_t* tmp_session;
     session_id expected_id;
 
-    memcpy(expected_id.source_address, address_a, IEEE80211_ALEN);
-    memcpy(expected_id.destination_address, address_b, IEEE80211_ALEN);
+    memcpy(expected_id.source_address, address_src, IEEE80211_ALEN);
+    memcpy(expected_id.destination_address, address_dst, IEEE80211_ALEN);
 
     // testing that session is not yet created
-    session = session_find(SOURCE, address_a, address_b);
+    session = session_find(src_context, address_src, address_dst);
     ck_assert_msg(session == NULL, "Session list already contained session which is to be created!");
 
     // calling session_register on an unregistered session should create one
-    created_session = session_register(SOURCE, address_a, address_b);
-    ck_assert_msg(created_session != NULL, "Failed session creation!");
-    ck_assert_int_eq(created_session->type, SOURCE);
-    ck_assert_mem_eq(&created_session->session_id, &expected_id, sizeof(session_id));
+    created_src_session = session_register(src_context, address_src, address_dst);
+    ck_assert_msg(created_src_session != NULL, "Failed session creation!");
+    ck_assert_int_eq(created_src_session->type, SOURCE);
+    ck_assert_mem_eq(&created_src_session->session_id, &expected_id, sizeof(session_id));
 
     // calling session_register on an registered session should just return that
-    tmp_session = session_register(SOURCE, address_a, address_b);
-    ck_assert_msg(tmp_session == created_session, "Differing pointers to the same session!");
+    tmp_session = session_register(src_context, address_src, address_dst);
+    ck_assert_msg(tmp_session == created_src_session, "Differing pointers to the same session!");
 
     // session_find for the inverse flow should not yield a result
-    session = session_find(SOURCE, address_b, address_a);
+    session = session_find(src_context, address_dst, address_src);
     ck_assert_msg(session == NULL, "After creating session, the other direction was weirdly also present!");
 
     // session_find for the created session should properly return that!
-    session = session_find(SOURCE, address_a, address_b);
+    session = session_find(src_context, address_src, address_dst);
     ck_assert_msg(session != NULL, "Failed to find created session!");
-    ck_assert_msg(session == created_session, "Pointers to found session differ to the created one!");
+    ck_assert_msg(session == created_src_session, "Pointers to found session differ to the created one!");
 
-    session_free(created_session);
+    session_free(created_src_session);
+
+    // now test creation of session for destination node
+    created_dst_session = session_register(dst_context, address_src, address_dst);
+    ck_assert_msg(created_dst_session != NULL, "Failed session creation!");
+    ck_assert_int_eq(created_dst_session->type, DESTINATION); // testing proper session type detection
+    ck_assert_mem_eq(&created_dst_session->session_id, &expected_id, sizeof(session_id));
+
+    // now test creation of session for intermediate nodes
+    created_intermediate_session = session_register(intermediate_context, address_src, address_dst);
+    ck_assert_msg(created_intermediate_session != NULL, "Failed session creation!");
+    ck_assert_int_eq(created_intermediate_session->type, INTERMEDIATE); // testing proper session type detection
+    ck_assert_mem_eq(&created_intermediate_session->session_id, &expected_id, sizeof(session_id));
 }
 END_TEST
 
@@ -129,40 +166,59 @@ START_TEST(test_session_coding_simple_two_nodes) {
     session_t* source;
     session_t* destination;
 
+    int ret;
+
     char* example0 = "Hello World!";
     char* example1 = "Hello World, whats up with you all?";
     char* example2 = "Hello World2!";
 
     os_frame_entry_t* received;
 
-    source = session_register(SOURCE, address_a, address_b);
+    // those configurations below are expected to successfully run the unit test
+    *(int*) &src_context->generation_size = 2;
+    *(int*) &src_context->generation_window_size = 2;
+    *(int*) &dst_context->generation_size = 2;
+    *(int*) &dst_context->generation_window_size = 2;
+
+    source = session_register(src_context, address_src, address_dst);
     ck_assert_int_eq(source->type, SOURCE);
-    destination = session_register(DESTINATION, address_a, address_b);
+
+    destination = session_register(dst_context, address_src, address_dst);
     ck_assert_int_eq(destination->type, DESTINATION);
     ck_assert_mem_eq(&source->session_id, &destination->session_id, sizeof(session_id));
 
-    session_encoder_add(source, (u8*) example0, strlen(example0));
+    ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example0, strlen(example0));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
 
     forward_frames(destination, 1, true);
 
     received = peek_os_frame_entry(0);
     ck_assert_int_eq(received->length, strlen(example0));
+    ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example0);
 
-    session_encoder_add(source, (u8*) example1, strlen(example1));
-    session_encoder_add(source, (u8*) example2, strlen(example2));
+    ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example1, strlen(example1));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
+
+    // adding the third frame, will test if generation_list_advance works properly
+    ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example2, strlen(example2));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
 
     forward_frames(destination, 2, true);
 
     received = peek_os_frame_entry(1);
     ck_assert_int_eq(received->length, strlen(example1));
+    ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example1);
 
     received = peek_os_frame_entry(2);
     ck_assert_int_eq(received->length, strlen(example2));
+    ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example2);
 }
 END_TEST
+
+/* -------------------------------------------------------------------------------------------- */
 
 Suite* session_suite() {
     Suite* suite;
@@ -187,7 +243,9 @@ Suite* session_suite() {
     return suite;
 }
 
-static int check_rtx_frame(session_t* session, u8* payload, size_t length) {
+static int check_rtx_frame(session_subsystem_context_t* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
+    (void) context;
+
     rtx_frame_entry_t *entry, *last;
     int index = 0;
 
@@ -204,6 +262,8 @@ static int check_rtx_frame(session_t* session, u8* payload, size_t length) {
     entry->index = index;
     entry->session = session;
 
+    memcpy(&entry->metadata, metadata, sizeof(coded_packet_metadata_t));
+
     ck_assert_msg(length <= sizeof(entry->payload), "Received frame inside check_rtx_frame() exceeding the length of rtx_frame_entry_t");
     memcpy(entry->payload, payload, length);
     entry->length = length;
@@ -213,7 +273,9 @@ static int check_rtx_frame(session_t* session, u8* payload, size_t length) {
     return 0;
 }
 
-static int check_os_frame(session_t* session, u8* payload, size_t length) {
+static int check_os_frame(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length) {
+    (void) context;
+
     os_frame_entry_t *entry, *last;
     int index = 0;
 
@@ -229,6 +291,8 @@ static int check_os_frame(session_t* session, u8* payload, size_t length) {
 
     entry->index = index;
     entry->session = session;
+
+    entry->ether_type = ether_type;
 
     ck_assert_msg(length <= sizeof(entry->payload), "Received frame inside check_os_frame() exceeding the length of os_frame_entry_t");
     memcpy(entry->payload, payload, length);
@@ -294,12 +358,14 @@ static os_frame_entry_t * peek_os_frame_entry(int index) {
 }
 
 static void forward_frames(session_t* destination, int count, bool forward_from_source) {
+    int ret;
     rtx_frame_entry_t* entry;
 
     while (count > 0 ) {
         entry = pop_rtx_frame_entry();
 
-        session_decoder_add(destination, entry->payload, entry->length, forward_from_source);
+        ret = session_decoder_add(destination, &entry->metadata, entry->payload, entry->length, forward_from_source);
+        ck_assert_int_eq(ret, EXIT_SUCCESS);
         free(entry);
 
         count--;

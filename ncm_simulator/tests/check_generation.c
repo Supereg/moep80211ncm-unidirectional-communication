@@ -48,7 +48,7 @@ START_TEST(test_generation_creation) {
     generation0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
     ck_assert_int_eq(generation0->sequence_number, 0);
     ck_assert_int_eq(generation0->session_type, SOURCE);
-    ck_assert_int_eq(generation0->coding_matrix_dimension, CHECK_GENERATION_SIZE);
+    ck_assert_int_eq(generation0->generation_size, CHECK_GENERATION_SIZE);
     ck_assert_int_eq(generation0->max_pdu_size, CHECK_MAX_PDU);
     ck_assert_int_eq(generation0->next_pivot, 0);
 
@@ -94,6 +94,7 @@ START_TEST(test_generation_destination) {
     generation_t* source;
     generation_t* destination;
     NCM_GENERATION_STATUS  status;
+    u16 generation_sequence;
     size_t length;
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
@@ -101,7 +102,7 @@ START_TEST(test_generation_destination) {
     source = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
     destination = generation_init(&check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
 
-    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, buffer, &length);
+    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_EMPTY);
     status = generation_next_decoded(destination, CHECK_MAX_PDU, buffer, &length);
     ck_assert_int_eq(status, GENERATION_NOT_YET_DECODABLE);
@@ -109,8 +110,9 @@ START_TEST(test_generation_destination) {
     status = generation_encoder_add(source, (u8*) example0, strlen(example0));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
 
-    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, buffer, &length);
+    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+    ck_assert_int_eq(generation_sequence, 0);
 
     status = generation_decoder_add_decoded(destination, buffer, length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
@@ -124,6 +126,56 @@ START_TEST(test_generation_destination) {
 
     status = generation_next_decoded(destination, CHECK_MAX_PDU, buffer, &length);
     ck_assert_int_eq(status, GENERATION_FULLY_TRAVERSED);
+}
+END_TEST
+
+START_TEST(test_generation_advance_source) {
+    generation_t* source_gen0;
+    generation_t* source_gen1;
+    NCM_GENERATION_STATUS status;
+
+    u8 buffer[CHECK_MAX_PDU] = {0};
+    size_t length;
+    coded_packet_metadata_t metadata;
+
+    char* example0 = "Hello World!";
+    char* example1 = "Hello World2!";
+    char* example2 = "Hello World3!";
+
+    source_gen0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    ck_assert_int_eq(source_gen0->sequence_number, 0);
+    // TODO check_generation_list0
+    source_gen1 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    ck_assert_int_eq(source_gen1->sequence_number, 1);
+
+    status = generation_list_encoder_add(&check_generation_list, (u8*) example0, strlen(example0));
+    ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+    status = generation_list_encoder_add(&check_generation_list, (u8*) example1, strlen(example1));
+    ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+
+    // Call "generation_list_next_encoded_frame" two times to simulate sending them out (calling generation_advance)
+    // TODO This is currently heavily built around the assumption that we have instant ACKs
+    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
+    ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+    ck_assert_int_eq(metadata.generation_sequence, 0);
+    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
+    ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+    ck_assert_int_eq(metadata.generation_sequence, 0);
+
+    status = generation_list_encoder_add(&check_generation_list, (u8*) example2, strlen(example2));
+    ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+
+    // checking that indeed generation_advance properly shifter the list and cleaned out completed generation
+    ck_assert_int_eq(source_gen0->sequence_number, 2);
+    ck_assert_int_eq(source_gen0->next_pivot, 0);
+    ck_assert_int_eq(source_gen0->remote_dimension, 0);
+
+
+    memset(buffer, 0, CHECK_MAX_PDU);
+    length = rlnc_block_get(source_gen1->rlnc_block, 0, buffer, CHECK_MAX_PDU);
+    ck_assert_int_ge(length, 0);
+
+    ck_assert_str_eq(example2, (char*) buffer);
 }
 END_TEST
 
@@ -148,6 +200,7 @@ Suite* generation_suite() {
     tcase_add_checked_fixture(generation_coding, test_generation_setup, test_generation_teardown);
     tcase_add_test(generation_coding, test_generation_source);
     tcase_add_test(generation_coding, test_generation_destination);
+    tcase_add_test(generation_coding, test_generation_advance_source);
 
     suite_add_tcase(suite, generation_handling);
     suite_add_tcase(suite, generation_coding);
