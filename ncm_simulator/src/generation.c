@@ -85,7 +85,7 @@ generation_t* generation_init(
     int sequence_number = 0;
 
     // As of time of writing (March 2021) rlnc_block_encode() fails to do encoding
-    // [the resulting buffer will not be written to, length is properly set] for generations with only one source frame.
+    // [the resulting buffer will not be written to, length is properly set] for generations with only one source frame and RLNC_STRUCTURED NOT set.
     // The issue seemingly doesn't occur with bigger GF types. Thus we currently disallow those GF types!
     assert(moepgf_type != MOEPGF2 && moepgf_type != MOEPGF4 && "Unable to init with MOEPGF2/MOEPGF4 as there are seemingly issues with libmoepgf");
 
@@ -194,11 +194,6 @@ static int generation_list_advance(struct list_head* generation_list) {
         last = list_last_entry(generation_list, struct generation, list);
 
         if (!generation_is_complete(next)) {
-            // TODO there >might< be an edge case where multiple completed generations are not freed
-            //  if they are preceded by a non completed generation (as we always [and have always] shifted the generations in order).
-            //  Not sure about the real world impact though. Should we mitigate that, we would need to ensure we don't rely on monotonous sequence numbering!
-            //      Note!!!: we can free generations out of order on the sender side, but not on the receiver side
-            //      as this would lead to packets being delivered out of order!
             break;
         }
 
@@ -245,7 +240,6 @@ NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_l
     NCM_GENERATION_STATUS status;
 
     list_for_each_entry(generation, generation_list, list) {
-        // TODO encoded packets must address one specific generation (to be addressed via a custom extension header)
         if (generation_space_remaining(generation) == 0) {
             continue;
         }
