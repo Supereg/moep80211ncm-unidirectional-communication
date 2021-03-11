@@ -94,6 +94,7 @@ START_TEST(test_generation_destination) {
     generation_t* source;
     generation_t* destination;
     NCM_GENERATION_STATUS  status;
+    u16 generation_sequence;
     size_t length;
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
@@ -101,7 +102,7 @@ START_TEST(test_generation_destination) {
     source = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
     destination = generation_init(&check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
 
-    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, buffer, &length);
+    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_EMPTY);
     status = generation_next_decoded(destination, CHECK_MAX_PDU, buffer, &length);
     ck_assert_int_eq(status, GENERATION_NOT_YET_DECODABLE);
@@ -109,8 +110,9 @@ START_TEST(test_generation_destination) {
     status = generation_encoder_add(source, (u8*) example0, strlen(example0));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
 
-    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, buffer, &length);
+    status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+    ck_assert_int_eq(generation_sequence, 0);
 
     status = generation_decoder_add_decoded(destination, buffer, length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
@@ -132,8 +134,9 @@ START_TEST(test_generation_advance_source) {
     generation_t* source_gen1;
     NCM_GENERATION_STATUS status;
 
-    size_t length;
     u8 buffer[CHECK_MAX_PDU] = {0};
+    size_t length;
+    coded_packet_metadata_t metadata;
 
     char* example0 = "Hello World!";
     char* example1 = "Hello World2!";
@@ -152,10 +155,12 @@ START_TEST(test_generation_advance_source) {
 
     // Call "generation_list_next_encoded_frame" two times to simulate sending them out (calling generation_advance)
     // TODO This is currently heavily built around the assumption that we have instant ACKs
-    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, buffer, &length);
+    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
-    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, buffer, &length);
+    ck_assert_int_eq(metadata.generation_sequence, 0);
+    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
+    ck_assert_int_eq(metadata.generation_sequence, 0);
 
     status = generation_list_encoder_add(&check_generation_list, (u8*) example2, strlen(example2));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);

@@ -12,7 +12,6 @@
 
 #include "session.h"
 
-
 /**
  * Struct holding all state information for a generation.
  */
@@ -61,8 +60,18 @@ struct generation {
     int remote_dimension;
 };
 
-// TODO instead of passing everything as an a distinct argument we could just pass
-//  the whole `session_subsystem_context`, containing pretty much all values [could create unwanted coupling though?]
+generation_t* generation_find(struct list_head* generation_list, u16 sequence_number) {
+    generation_t* generation;
+
+    list_for_each_entry(generation, generation_list, list) {
+        if (generation->sequence_number == sequence_number) {
+            return generation;
+        }
+    }
+
+    return NULL;
+}
+
 generation_t* generation_init(
     struct list_head* generation_list,
     enum SESSION_TYPE session_type,
@@ -74,6 +83,11 @@ generation_t* generation_init(
 
     struct generation* previous;
     int sequence_number = 0;
+
+    // As of time of writing (March 2021) rlnc_block_encode() fails to do encoding
+    // [the resulting buffer will not be written to, length is properly set] for generations with only one source frame.
+    // The issue seemingly doesn't occur with bigger GF types. Thus we currently disallow those GF types!
+    assert(moepgf_type != MOEPGF2 && moepgf_type != MOEPGF4 && "Unable to init with MOEPGF2/MOEPGF4 as there are seemingly issues with libmoepgf");
 
     // generate next sequence number, required to start at zero and be continuous
     if (!list_empty(generation_list)) {
@@ -183,6 +197,8 @@ static int generation_list_advance(struct list_head* generation_list) {
             // TODO there >might< be an edge case where multiple completed generations are not freed
             //  if they are preceded by a non completed generation (as we always [and have always] shifted the generations in order).
             //  Not sure about the real world impact though. Should we mitigate that, we would need to ensure we don't rely on monotonous sequence numbering!
+            //      Note!!!: we can free generations out of order on the sender side, but not on the receiver side
+            //      as this would lead to packets being delivered out of order!
             break;
         }
 
@@ -245,7 +261,7 @@ NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_l
     return GENERATION_UNAVAILABLE;
 }
 
-static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u8* buffer, size_t* length_encoded) {
+static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u16* generation_sequence, u8* buffer, size_t* length_encoded) {
     int flags = 0;
     ssize_t length;
 
@@ -259,8 +275,6 @@ static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generat
         flags |= RLNC_STRUCTURED;
     }
 
-    // TODO rlnc_block_encode fails if only one frame is contained in the generation, rlcn will always just deliver empty buffer (though with correct length)
-    //    this ONLY happens with MOEPGF2 or MOEPGF4 [nothing above].
     length = rlnc_block_encode(generation->rlnc_block, buffer, max_length, flags);
 
     if (length < 0) {
@@ -268,6 +282,7 @@ static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generat
         return GENERATION_GENERIC_ERROR;
     }
 
+    *generation_sequence = generation->sequence_number;
     *length_encoded = length;
 
     // TODO we currently assume acknowledgment of frames, once they are sent out.
@@ -277,18 +292,18 @@ static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generat
     return GENERATION_STATUS_SUCCESS;
 }
 
-NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_encoded) {
+NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, coded_packet_metadata_t* metadata, u8* buffer, size_t* length_encoded) {
     generation_t* generation;
     NCM_GENERATION_STATUS status;
 
     generation = list_first_entry(generation_list, generation_t, list);
-    // TODO we would need to send out encoded frames for all not yet ACK generations, not just the "next" one.
-    status = generation_next_encoded_frame(generation, max_length, buffer, length_encoded);
+    // TODO we would need to send out encoded frames for all not yet ACK generations(??? timer based?), not just the "next" one.
+    status = generation_next_encoded_frame(generation, max_length, &metadata->generation_sequence, buffer, length_encoded);
 
     // generation_list_advance is to be called once we update any of the configuration state
     // (e.g. if we receive ACK/get a update remote dimension information),
     // as this may render a generation complete => thus we can reset it.
-    // TODO this currently assumes instant ACKs, thus we will probably need to move this statement!
+    // TODO this currently assumes instant ACKs, thus we will probably need to move this statement later!
     (void) generation_list_advance(generation_list);
 
     return status;
@@ -332,6 +347,7 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
     if (status == GENERATION_FULLY_TRAVERSED) { // generation is fully decoded
         int advanced_generations = generation_list_advance(generation_list);
         if (advanced_generations > 0) {
+            // there are some new/free reset generations, just try again.
             return generation_list_next_decoded(generation_list, max_length, buffer, length_decoded);
         }
     }
@@ -363,21 +379,17 @@ static NCM_GENERATION_STATUS generation_decoder_add_decoded(generation_t* genera
     return GENERATION_STATUS_SUCCESS;
 }
 
-NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* generation_list, u8* buffer, size_t length) {
+NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length) {
     generation_t* generation;
     NCM_GENERATION_STATUS status;
 
-    list_for_each_entry(generation, generation_list, list) {
-        // TODO for now we just use the first available generation,
-        //  later we need to do this using the addressed generation of the extension header
-        if (generation_space_remaining(generation) == 0) {
-            continue;
-        }
-
-        status = generation_decoder_add_decoded(generation, buffer, length);
-
-        return status;
+    generation = generation_find(generation_list, metadata->generation_sequence);
+    if (generation == NULL) {
+        LOG(LOG_WARNING, "Received a seemingly late packet for the generation %d", metadata->generation_sequence);;
+        return GENERATION_UNAVAILABLE;
     }
 
-    return GENERATION_UNAVAILABLE;
+    status = generation_decoder_add_decoded(generation, buffer, length);
+
+    return status;
 }

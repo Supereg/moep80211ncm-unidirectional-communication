@@ -95,7 +95,7 @@ int generation_space_remaining(const generation_t* generation);
 
 /**
  * Adds a source frame (e.g. received from the OS) to the next available generation in the provided generation list.
- * This might then lead to the `session_subsystem_context.rtx_callback` being called with the encoded frame.
+ * This might then lead to the `session_subsystem_context_t.rtx_callback` being called with the encoded frame.
  *
  * @param generation_list - The `generation` list, to choose the next available generation from.
  * @param buffer - Pointer to the given payload.
@@ -104,8 +104,16 @@ int generation_space_remaining(const generation_t* generation);
  */
 NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_list, u8* buffer, size_t length);
 
-// TODO docs
-NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_encoded);
+/**
+ * Creates the next encoded packet for the given generation list.
+ * @param generation_list - The list of generations to choose a generation from.
+ * @param max_length - Maximum PDU length.
+ * @param metadata - Pointer to a `coded_packet_metadata_t` to **collect** and store the given metadata.
+ * @param buffer - Pointer to a buffer where the payload should be stored.
+ * @param length_encoded - Pointer to store the length of the encoded payload.
+ * @return Returns an `NCM_GENERATION_STATUS`. Note parameters `metadata` and `length_encoded` are only written to on a `GENERATION_STATUS_SUCCESS`.
+ */
+NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, coded_packet_metadata_t* metadata, u8* buffer, size_t* length_encoded);
 
 /**
  * Used to retrieve the next decodable frame of the list of generations.
@@ -122,10 +130,11 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
 /**
  * Called to add a encoded frame received from the network.
  * @param generation_list - List of generations.
+ * @param metadata - Pointer to a `coded_packet_metadata_t` struct, holding metadata relevant to the given coded packet.
  * @param buffer - Pointer to the buffer containing the encoded frame.
  * @param length - Length of the encoded frame.
  * @return Returns a `NCM_GENERATION_STATUS`.
  */
-NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* generation_list, u8* buffer, size_t length);
+NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length);
 
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_GENERATION_H
