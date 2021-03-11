@@ -3,33 +3,57 @@ import struct
 # pip3 install python-libpcap
 from pylibpcap.pcap import rpcap
 
+# Moep extension header types
 HDR_PCTRL = 0x01
 HDR_DATA = 0x20
 HDR_CODED = 0x21
 HDR_BCAST = 0x22
 HDR_BEACON = 0x23
 
+# Moep extension header type lookup table
+hdr_types = {
+    0x01: "HDR_PCTRL",
+    0x20: "HDR_DATA",
+    0x21: "HDR_CODED",
+    0x22: "HDR_BCAST",
+    0x23: "HDR_BEACON"
+}
+
+# custom Exception to raise during unpacking
 class UnpackingException(Exception):
     pass
 
+# format MAC addresses
 def fmt_mac(addr):
     return ":".join([hex(el)[2:] for el in addr])
 
+# format header types/Flags prettily
+def fmt_type(tpe, tps):
+    try:
+        return f"{hex(tpe)} ({tps[tpe]})"
+    except KeyError:
+        return f"{hex(tpe)} (Unknown)"
+
+# do nothing
 def nop(x):
     return x
 
+# unpack header type with flags
 def unpack_hdrtype(buf):
     bufval = struct.unpack(">B", buf[:1])[0]
     res = (bufval & 0x80) >> 7
     nxt = (bufval & 0x40) >> 6
     priv = (bufval & 0x20) >> 5
-    typeval = bufval
+    typeval = bufval & 0xbf
     return [
         ("Reserved", res, hex),
         ("NEXT", nxt, hex),
         ("Private", priv, hex),
-        ("Type", typeval, hex)
+        ("Type", typeval, lambda x: fmt_type(x, hdr_types))
     ]
+
+# Header structures
+# Name, struct unpacking format, length, printing format
 
 moep_generic_header = [
     ("Frame Control", ">H", 2, hex),
@@ -80,6 +104,7 @@ moep_hdr_bcast = [
     ("id", ">I", 4, hex)
 ]
 
+# unpacking generic headers following above structures
 def unpack_generic(buf, hdr):
     ret = []
     ind_cur = 0
@@ -95,6 +120,7 @@ def unpack_generic(buf, hdr):
         ind_cur += leng
     return ret, ind_cur
 
+# unpack moep frame
 def moep_unpack(buf):
     # unpacking radiotap header
     if len(buf) < 4:
@@ -120,23 +146,28 @@ def moep_unpack(buf):
         ind_cur += ind_new
         nex_hdr = ret[-1][1][1][1]
         hdr_type = ret[-1][1][3][1]
+        hdr_len = ret[-1][1][4][1]
 
         if hdr_type == HDR_PCTRL:
             ret_app, ind_new = unpack_generic(buf[ind_cur:], moep_hdr_pctrl)
-            print(ret_app)
             payload_len = ret_app[1][1]
             ind_cur += ind_new
-            if len(buf[ind_cur:]) < payload_len:
-                raise UnpackingException("pctrl header length too short " + str(payload_len))
-            ret_app.append(("PCtrl Payload", buf[ind_cur:ind_cur + payload_len]))
-            ind_cur += payload_len
-
-            ret.append("PCtrl Header", ret_app)
+            ret.append(("PCtrl Header", ret_app))
         elif hdr_type == HDR_CODED:
-            ret_app, ind_new = unpack_generic(buf[ind_cur:], moep_hdr_coded)
+            ret_coded, ind_new = unpack_generic(buf[ind_cur:], moep_hdr_coded)
             ind_cur += ind_new
-            ret.append(("Coded Header", ret_app))
-            break
+
+            coded_len = ind_new
+            while coded_len < hdr_len:
+                # Acknowlegment?? ToDo: figure out different header lenghts...
+                if len(buf[ind_cur:]) < 7:
+                    break
+                ret_app, ind_new = unpack_generic(buf[ind_cur:], moep_struct_generation_feedback)
+                ind_cur += ind_new
+                ret_coded += ret_app
+                coded_len += ind_new
+
+            ret.append(("Coded Header", ret_coded))
         elif hdr_type == HDR_BEACON:
             ret_app, ind_new = unpack_generic(buf[ind_cur:], moep_hdr_beacon)
             ind_cur += ind_new
@@ -154,6 +185,7 @@ def moep_unpack(buf):
     
     return ret
 
+# format unpacked frame
 def fmt(unpacked):
     for hdr, vals in unpacked:
         print(hdr)
