@@ -218,6 +218,8 @@ START_TEST(test_session_coding_simple_two_nodes) {
 }
 END_TEST
 
+// TODO packet loss tests
+
 /* -------------------------------------------------------------------------------------------- */
 
 Suite* session_suite() {

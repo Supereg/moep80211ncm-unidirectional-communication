@@ -180,19 +180,17 @@ serialize_for_encoding(void *buffer, size_t maxlen, struct moep_frame *f)
 	struct ether_header *ether;
 
 	if (!(ether = moep_frame_ieee8023_hdr(f)))
-	    // TODO denial of service possible
 		DIE("ether_header not found");
 
 	payload = moep_frame_get_payload(f, &len);
 
 	if (len+sizeof(*pctrl) > maxlen)
-	    // TODO denial of service is possible
 		DIE("unable to serialize frame for encoding (frame too long)");
 
 	pctrl = buffer;
 	pctrl->hdr.type = MOEP_HDR_PCTRL;
 	pctrl->hdr.len  = sizeof(*pctrl);
-	pctrl->type = htole16(be16toh(ether->ether_type)); // TODO is there a reason why we do this conversion?
+	pctrl->type = htole16(be16toh(ether->ether_type));
 	pctrl->len = len;
 
 	memcpy(buffer+sizeof(*pctrl), payload, len);
@@ -450,7 +448,7 @@ int
 session_encoder_add(struct session *s, moep_frame_t f)
 {
 	ssize_t len;
-	static u8 buffer[4096]; // FIXME seems like a leftover, the frame size is bigger?
+	static u8 buffer[4096];
 	generation_t g;
 
 	timeout_settime(s->task.destroy, 0, timeout_msec(SESSION_TIMEOUT,0));
