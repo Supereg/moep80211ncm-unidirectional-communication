@@ -1,4 +1,5 @@
 import struct
+import binascii
 
 # pip3 install python-libpcap
 from pylibpcap.pcap import rpcap
@@ -181,6 +182,14 @@ def moep_unpack(buf):
                 coded_len += ind_new
 
             ret.append(("Coded Header", ret_coded))
+
+            # implicit assumption that generation size == 128
+            if len(buf[ind_cur:]) > 128:
+                ret.append(("Coding Payload", [
+                    ("Coding Vector", buf[ind_cur:ind_cur + 128], binascii.hexlify),
+                    ("Coded Packet", buf[ind_cur + 128:], nop),
+                ]))
+                ind_cur = len(buf)
         elif hdr_type == HDR_BEACON:
             ret_app, ind_new = unpack_generic(buf[ind_cur:], moep_hdr_beacon)
             ind_cur += ind_new
