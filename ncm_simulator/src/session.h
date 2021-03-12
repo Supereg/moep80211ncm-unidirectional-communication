@@ -18,7 +18,11 @@
 #define SESSION_TIMEOUT 30000
 
 struct session;
-/// Opaque type for a `session` struct, representing all state of a session.
+/**
+ * Opaque type for a `session` struct, representing all state of a session.
+ * Seemingly inconsistent with the rest of the project, we don't use pointer typedefs:
+ * https://stackoverflow.com/questions/3781932/is-typedefing-a-pointer-type-considered-bad-practice
+ */
 typedef struct session session_t;
 
 struct session_subsystem_context;
