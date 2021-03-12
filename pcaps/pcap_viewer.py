@@ -52,6 +52,21 @@ def unpack_hdrtype(buf):
         ("Type", typeval, lambda x: fmt_type(x, hdr_types))
     ]
 
+def unpack_gfws(buf):
+    bufval = struct.unpack("B", buf[:1])[0]
+    return [
+        ("GF", bufval & 0x3, hex),
+        ("Window Size", (bufval & 0xfc) >> 2, hex),
+    ]
+
+def unpack_fblock(buf):
+    bufval = struct.unpack("B", buf[:1])[0]
+    return [
+        ("MS Lock", bufval & 0x1, hex),
+        ("SM Lock", bufval & 0x2, hex),
+        ("Unused", (bufval & 0xfc) >> 2, hex),
+    ]
+
 # Header structures
 # Name, struct unpacking format, length, printing format
 
@@ -78,16 +93,13 @@ moep_hdr_pctrl = [
 moep_hdr_coded = [
     ("SID1", "6s", 6, fmt_mac),
     ("SID2", "6s", 6, fmt_mac),
-    ("GF", "B", 1, hex),
-    ("Window Size", "B", 1, hex),
+    ("GFWS", unpack_gfws, 1, hex),
     ("seq", ">H", 2, hex),
     ("lseq", ">H", 2, hex)
 ]
 
 moep_struct_generation_feedback = [
-    ("ms_lock", "B", 1, hex),
-    ("sm_lock", "B", 1, hex),
-    ("unused", "B", 1, hex),
+    ("lock_res", unpack_fblock, 1, hex),
     ("ms_ddim", "B", 1, hex),
     ("sm_ddim", "B", 1, hex),
     ("ms_sdim", "B", 1, hex),
@@ -157,10 +169,11 @@ def moep_unpack(buf):
             ret_coded, ind_new = unpack_generic(buf[ind_cur:], moep_hdr_coded)
             ind_cur += ind_new
 
-            coded_len = ind_new
+            coded_len = ind_new + 2
             while coded_len < hdr_len:
                 # Acknowlegment?? ToDo: figure out different header lenghts...
-                if len(buf[ind_cur:]) < 7:
+                if len(buf[ind_cur:]) < 5:
+                    print("WARNING, left over payload was not multiple of seven")
                     break
                 ret_app, ind_new = unpack_generic(buf[ind_cur:], moep_struct_generation_feedback)
                 ind_cur += ind_new
