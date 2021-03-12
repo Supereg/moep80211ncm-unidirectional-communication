@@ -12,6 +12,11 @@
 #include <moep/modules/moep80211.h>
 #include <moepgf/moepgf.h>
 
+/**
+ * Timeout in milliseconds a session has to be idle before it gets destroyed.
+ */
+#define SESSION_TIMEOUT 30000
+
 struct session;
 /// Opaque type for a `session` struct, representing all state of a session.
 typedef struct session session_t;
@@ -236,15 +241,7 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os);
 
 /**
- * Sends next encoded frame. Prepares and sets all metadata.
- * 
- * @param session - The `session_t` for which the frame is to be sent
- * @returns Returns 0 for success, -1 for failure.
- */
-int session_transmit_next_encoded_frame(session_t* session);
-
-/**
- * Sends an acknowlegment frame. Preparse and sets all metadata.
+ * Sends an acknowledgment frame. Preparse and sets all metadata.
  * 
  * @param session - The `session_t` for which the frame is to be sent
  * @returns Returns 0.

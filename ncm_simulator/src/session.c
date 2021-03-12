@@ -9,6 +9,7 @@
 
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
+#include <moepcommon/timeout.h>
 
 #include "generation.h"
 
@@ -33,9 +34,11 @@ struct session {
      */
     enum SESSION_TYPE type;
 
-    // TODO session state?
-
-    // TODO session destroy timer!
+    /**
+     * Timeout ran with `SESSION_TIMEOUT` delay, removing/cleaning up the session
+     * when timeout is reached. Timeout is reset for every activity on the session.
+     */
+    timeout_t destroy_timeout;
 
     /**
      * Linked list, containing all `generation_t`s associated with the given session.
@@ -43,6 +46,7 @@ struct session {
     struct list_head generations_list;
 };
 
+void session_free(session_t* session); // forward declaration used in session_callback_destroy()
 void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
 int session_transmit_next_encoded_frame(session_t* session); // forward declaration use in session_encoder_add()
 
@@ -129,9 +133,27 @@ session_t* session_find(session_subsystem_context_t* context, const u8* ether_so
     return NULL;
 }
 
+static void session_handle_activity(session_t* session) {
+    int ret;
+
+    ret = timeout_settime(session->destroy_timeout, 0, timeout_msec(SESSION_TIMEOUT, 0));
+    if (ret != 0) {
+        DIE("session_handle_activity() failed to timeout_settime() for destroy timeout: %s", strerror(errno));
+    }
+}
+
+static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) timeout;
+    (void) overrun;
+    session_t* session = data;
+    session_free(session);
+    return 0;
+}
+
 session_t* session_register(session_subsystem_context_t* context, const u8* ether_source_host, const u8 *ether_destination_host) {
     enum SESSION_TYPE session_type;
     struct session* session;
+    int ret;
 
     session_type = session_type_derived(context, ether_source_host, ether_destination_host);
     session = session_find(context, ether_source_host, ether_destination_host);
@@ -153,8 +175,15 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
 
     session->type = session_type;
 
-    INIT_LIST_HEAD(&session->generations_list);
+    ret = timeout_create(CLOCK_MONOTONIC, &session->destroy_timeout, session_destroy_callback, session);
+    if (ret != 0) {
+        free(session);
+        DIE("session_register() failed to create destroy timeout: %s", strerror(errno));
+    }
 
+    session_handle_activity(session); // initializes the destroy_timeout!
+
+    INIT_LIST_HEAD(&session->generations_list);
     for (int i = 0; i < context->generation_window_size; i++) {
         generation_init(
             session,
@@ -182,7 +211,7 @@ void session_free(session_t* session) {
 
     generation_list_free(&session->generations_list);
 
-    // TODO timeout delete
+    timeout_delete(session->destroy_timeout);
 
     // TODO potential logging file unlink (do we want/need to [re]implement that?)
 
@@ -207,27 +236,29 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
     static u8 buffer[MAX_PDU_SIZE] = {0};
     size_t buffer_length;
     // see docs of `coded_payload_metadata`
-    struct coded_payload_metadata* metadata;
+    coded_payload_metadata_t* metadata;
 
     assert(session->type == SOURCE && "Only a SOURCE session can add source frames!");
+
+    session_handle_activity(session);
 
     // 1. prepend our frame buffer with the `coded_payload_metadata` metadata
     //   to preserve ether type and length information in our linear combinations of packets
 
-    buffer_length = payload_length + sizeof(struct coded_payload_metadata);
+    buffer_length = payload_length + sizeof(coded_payload_metadata_t);
     // TODO we later need to transport the coding vectors + the buffer in a single PDU,
     //   thus this check would somehow need to account for that
     //   (the check will be repeated later [with also checking coding coefficients], but is probably better to catch that early?
     if (buffer_length > MAX_PDU_SIZE) {
         LOG_SESSION(LOG_WARNING, session, "Received a source frame which is bigger than the maximum of %lu bytes",
-                    (MAX_PDU_SIZE - sizeof(struct coded_payload_metadata)));
+                    (MAX_PDU_SIZE - sizeof(coded_payload_metadata_t)));
         return -1;
     }
 
     metadata = (void*) buffer;
     metadata->payload_type = htole16(be16toh(ether_type)); // iee 80211 is LE
 
-    memcpy(buffer + sizeof(struct coded_payload_metadata), payload, payload_length);
+    memcpy(buffer + sizeof(coded_payload_metadata_t), payload, payload_length);
 
 
     // 2. add the buffer (with prepended `coded_payload_metadata`) to the next available generation in our list.
@@ -249,7 +280,7 @@ void session_check_for_decoded_frames(session_t* session) {
     static u8 buffer[MAX_PDU_SIZE] = {0};
     size_t buffer_length;
 
-    struct coded_payload_metadata* metadata;
+    coded_payload_metadata_t* metadata;
     u8* payload;
     size_t payload_length;
 
@@ -272,20 +303,20 @@ void session_check_for_decoded_frames(session_t* session) {
         // below code is undoing this, and pulling out all the metadata information.
 
         metadata = (void*) buffer;
-        payload = buffer + sizeof(struct coded_payload_metadata);
-        payload_length = buffer_length - sizeof(struct coded_payload_metadata);
+        payload = buffer + sizeof(coded_payload_metadata_t);
+        payload_length = buffer_length - sizeof(coded_payload_metadata_t);
 
         // ieee 80211 is LE, while ieee 8023 is BE
         u16 ether_type = htobe16(le16toh(metadata->payload_type));
 
         session->context->os_callback(session->context, session, ether_type, payload, payload_length);
     }
-
-    // TODO reset future session destroy timeout
 }
 
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) { // TODO replace forward_os (only for internal testing)
     NCM_GENERATION_STATUS status;
+
+    session_handle_activity(session);
 
     if (metadata->ack) {
         assert(session->type == SOURCE || session->type == INTERMEDIATE);
