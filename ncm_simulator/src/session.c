@@ -214,6 +214,9 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
     //   to preserve ether type and length information in our linear combinations of packets
 
     buffer_length = payload_length + sizeof(struct coded_payload_metadata);
+    // TODO we later need to transport the coding vectors + the buffer in a single PDU,
+    //   thus this check would somehow need to account for that
+    //   (the check will be repeated later [with also checking coding coefficients], but is probably better to catch that early?
     if (buffer_length > MAX_PDU_SIZE) {
         LOG_SESSION(LOG_WARNING, session, "Received a source frame which is bigger than the maximum of %lu bytes",
                     (MAX_PDU_SIZE - sizeof(struct coded_payload_metadata)));
