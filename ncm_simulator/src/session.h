@@ -41,16 +41,27 @@ typedef struct coded_payload_metadata {
  * This struct is used to store any metadata with the coded **packet**.
  * This includes e.g. addressing/identification of the given session and generation.
  * This is basically a internal structure to pass around information
- * store in the 'coded' extension header of a moep 80311 packet.
+ * store in the 'coded' extension header of a moep 80211 packet.
  */
 typedef struct coded_packet_metadata {
-    /**
-     * The sequence number of the generation a given encoded packet stems from or is addressed to.
-     */
+    // The Session ID
+    session_id sid;
+    // The sequence number of the generation a given encoded packet stems from or is addressed to.
     u16 generation_sequence;
-    // TODO add stuff like the window size, gf type, or the "current smallest generation sequence number"
+    // The smalles sequence number of the current sequence number window
+    u16 smallest_generation_sequence;
+    // Galois field type
+    u8 gf:2;
+    // ACKnowlegment flag
+    u8 ack:1;
+    // generation windows size
+    u8 window_size:5;
 } coded_packet_metadata_t;
 
+// This struct represents the payload that is transported via an ack
+typedef struct ack_payload {
+    u8 receiver_dim;
+} ack_payload_t;
 
 /**
  * Generic callback type for handling encoded payloads.
@@ -221,5 +232,21 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
  * @return Returns 0 for success, -1 for failure.
  */
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os);
+
+/**
+ * Sends next encoded frame. Prepares and sets all metadata.
+ * 
+ * @param session - The `session_t` for which the frame is to be sent
+ * @returns Returns 0 for success, -1 for failure.
+ */
+int session_transmit_next_encoded_frame(session_t* session);
+
+/**
+ * Sends an acknowlegment frame. Preparse and sets all metadata.
+ * 
+ * @param session - The `session_t` for which the frame is to be sent
+ * @returns Returns 0.
+ */
+int session_transmit_ack_frame(session_t* session);
 
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_SESSION_H

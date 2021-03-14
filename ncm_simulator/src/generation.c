@@ -335,6 +335,9 @@ static NCM_GENERATION_STATUS generation_next_decoded(generation_t* generation, s
     generation->next_pivot++;
     *length_decoded = length;
 
+    // dimension has changed, we need to acknowledge that
+    session_transmit_ack_frame(generation->session);
+
     return GENERATION_STATUS_SUCCESS;
 }
 
@@ -396,4 +399,19 @@ NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* gene
     status = generation_decoder_add_decoded(generation, buffer, length);
 
     return status;
+}
+
+u16 get_first_generation_number(struct list_head* generations_list) {
+    return list_first_entry(generations_list, struct generation, list)->sequence_number;
+}
+
+void get_generation_feedback(struct list_head* generations_list, ack_payload_t* payload) {
+    struct generation* cur;
+    int payload_ind;
+
+    payload_ind = 0;
+    list_for_each_entry(cur, generations_list, list) {
+        payload[payload_ind].receiver_dim = cur->remote_dimension;
+        payload_ind++;
+    }
 }

@@ -33,13 +33,12 @@ enum frametypes {
  */
 struct ncm_hdr_unidirectional_coded {
     struct moep_hdr_ext hdr;
-
     u8 session_id[2 * IEEE80211_ALEN];
     u16 sequence_number;
-
-    // TODO do we need the lseq number?
-
-    // TODO parameters like the gf type, window_size, generation_feedback ???
+    u16 smallest_generation_sequence;
+    u8 gf:2;
+    u8 ack:1;
+    u8 window_size:5;
 };
 
 
@@ -84,6 +83,15 @@ int ncm_session_decoder_add(session_t* session, moep_frame_t frame) {
     return session_decoder_add(session, payload, payload_length, true);
 }
 
+int set_coded_header(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet_metadata_t* metadata) {
+    memcpy(coded_header->session_id, metadata->sid, sizeof(struct session_id));
+    coded_header->sequence_number = metadata->generation_sequence;
+    coded_header->smallest_generation_sequence = metadata->smallest_generation_sequence;
+    coded_header->gf = metadata->gf;
+    coded_header->ack = metadata->ack;
+    coded_header->window_size = metadata->window_size;
+}
+
 int tx_encoded_frame(struct session_subsystem_context* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
     session_id* session_id;
     moep_dev_t device = NULL; // TODO need the pointer to the device
@@ -99,11 +107,7 @@ int tx_encoded_frame(struct session_subsystem_context* context, session_t* sessi
         frame,
         (enum moep_hdr_type) NCM_HDR_UNIDIRECTIONAL_CODED,
         sizeof(struct ncm_hdr_unidirectional_coded));
-
-    memcpy(coded_header->session_id, session_id->source_address, IEEE80211_ALEN);
-    memcpy(coded_header->session_id + IEEE80211_ALEN, session_id->destination_address, IEEE80211_ALEN);
-    coded_header->sequence_number = metadata->generation_sequence;
-
+    set_coded_header(coded_header, metadata);
 
     if (moep_frame_set_payload(frame, payload, length) == NULL) {
         LOG_SESSION(LOG_WARNING, session, "Failed to set frame payload of next encoded frame: %s", strerror(errno));
