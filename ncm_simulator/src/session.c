@@ -215,6 +215,9 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
     //   to preserve ether type and length information in our linear combinations of packets
 
     buffer_length = payload_length + sizeof(struct coded_payload_metadata);
+    // TODO we later need to transport the coding vectors + the buffer in a single PDU,
+    //   thus this check would somehow need to account for that
+    //   (the check will be repeated later [with also checking coding coefficients], but is probably better to catch that early?
     if (buffer_length > MAX_PDU_SIZE) {
         LOG_SESSION(LOG_WARNING, session, "Received a source frame which is bigger than the maximum of %lu bytes",
                     (MAX_PDU_SIZE - sizeof(struct coded_payload_metadata)));
@@ -222,7 +225,7 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
     }
 
     metadata = (void*) buffer;
-    metadata->payload_type = ether_type; // stored in BE 16
+    metadata->payload_type = htole16(be16toh(ether_type)); // iee 80211 is LE
 
     memcpy(buffer + sizeof(struct coded_payload_metadata), payload, payload_length);
 
@@ -272,7 +275,10 @@ void session_check_for_decoded_frames(session_t* session) {
         payload = buffer + sizeof(struct coded_payload_metadata);
         payload_length = buffer_length - sizeof(struct coded_payload_metadata);
 
-        session->context->os_callback(session->context, session, metadata->payload_type, payload, payload_length);
+        // ieee 80211 is LE, while ieee 8023 is BE
+        u16 ether_type = htobe16(le16toh(metadata->payload_type));
+
+        session->context->os_callback(session->context, session, ether_type, payload, payload_length);
     }
 
     // TODO reset future session destroy timeout

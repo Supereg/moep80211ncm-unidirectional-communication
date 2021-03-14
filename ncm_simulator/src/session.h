@@ -33,6 +33,7 @@ typedef struct {
 typedef struct coded_payload_metadata {
     /**
      * Equivalent to the ethertype, specifying the L3 protocol.
+     * Stored in LE format.
      */
     u16 payload_type;
 } coded_payload_metadata_t;

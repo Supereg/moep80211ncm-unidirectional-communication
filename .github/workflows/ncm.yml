@@ -57,9 +57,9 @@ jobs:
         working-directory: ${{ env.build-directory }}
 
       - name: Run NCM Simulator
-        # we can't test anything contained in the main file of the simulator,
-        # thus we just quickly run it without arguments to have a basic check its working.
-        run: ./src/ncm_simulator
+        # we can't unit test anything contained in the main file of the simulator,
+        # thus we just quickly run it in ci mode to have a basic check its working.
+        run: ./src/ncm_simulator --ci-mode
         timeout-minutes: 1 # we might make it interactive in the future, protect the action against running forever
         working-directory: ${{ env.build-directory }}/ncm_simulator
 
