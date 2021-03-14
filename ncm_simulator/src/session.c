@@ -157,6 +157,7 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
 
     for (int i = 0; i < context->generation_window_size; i++) {
         generation_init(
+            session,
             &session->generations_list,
             session_type,
             context->moepgf_type,

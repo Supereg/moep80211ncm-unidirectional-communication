@@ -62,6 +62,7 @@ typedef struct generation generation_t;
  * @return The created `generation_t`, guaranteed to be non NULL.
  */
 generation_t* generation_init(
+        struct session* session,
         struct list_head* generation_list,
         enum SESSION_TYPE session_type,
         enum MOEPGF_TYPE moepgf_type,

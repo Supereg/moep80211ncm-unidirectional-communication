@@ -16,6 +16,8 @@
  * Struct holding all state information for a generation.
  */
 struct generation {
+    // reverse pointer to session which generation is part of
+    struct session *session;
     struct list_head list;
     /**
      * Sequence number uniquely identifying the given generation (in the context of a specific session).
@@ -26,7 +28,7 @@ struct generation {
      * TODO revise the maximum possible window size (we need to ensure no collisions are possible!)
      *   at least it must be hold: assert(sequence_number <= GENERATION_MAX_SEQUENCE_NUMBER - 1 && "");
      */
-    int sequence_number;
+    u16 sequence_number;
 
     /**
      * The session type of the associated session (See `SESSION_TYPE`):
@@ -73,6 +75,7 @@ generation_t* generation_find(struct list_head* generation_list, u16 sequence_nu
 }
 
 generation_t* generation_init(
+    struct session* session,
     struct list_head* generation_list,
     enum SESSION_TYPE session_type,
     enum MOEPGF_TYPE moepgf_type,
@@ -101,6 +104,7 @@ generation_t* generation_init(
         DIE("Failed to calloc() generation: %s", strerror(errno));
     }
 
+    generation->session = session;
     generation->rlnc_block = rlnc_block_init(generation_size, max_pdu_size, alignment, moepgf_type);
     if (generation->rlnc_block == NULL) {
         free(generation);
