@@ -263,7 +263,7 @@ session_register(const struct params_session *params,
 
 	for (i=0; i<s->params.winsize; i++) {
 		(void) generation_init(s, &s->gl, s->gentype,
-		params->gftype, params->gensize, 8192, i);
+		params->gftype, params->gensize, GENERATION_MAX_PDU_SIZE, i);
 	}
 
 	list_add(&s->list, &sl);
@@ -291,7 +291,7 @@ tx_decoded_frame(struct session *s)
 	struct moep_hdr_pctrl *pctrl;
 	struct ether_header *etherptr;
 	u8 *hwaddr_remote;
-	u8 buffer[8192];
+	u8 buffer[GENERATION_MAX_PDU_SIZE];
 
 	len = generation_decoder_get(&s->gl, buffer, sizeof(buffer));
 
@@ -332,7 +332,7 @@ int
 tx_encoded_frame(struct session *s, generation_t g)
 {
 	moep_frame_t frame;
-	u8 payload[8192];
+	u8 payload[GENERATION_MAX_PDU_SIZE];
 	struct ncm_hdr_coded *coded;
 	struct generation_feedback *fb;
 	struct moep80211_hdr *hdr;

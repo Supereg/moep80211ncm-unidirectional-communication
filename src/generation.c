@@ -135,9 +135,17 @@ generation_window_size(const struct list_head *gl)
 {
 	generation_t first = list_first_entry(gl, struct generation, list);
 	generation_t last = list_last_entry(gl, struct generation, list);
-	return delta(last->seq, first->seq, GENERATION_MAX_SEQ) + 1;
+	return delta(last->seq, first->seq, GENERATION_MAX_SEQUENCE_NUMBER) + 1;
 }
 
+/**
+ * Writes a `generation_feedback` for every generation in our generation list into the
+ * given `ncm_hdr_coded` extension header.
+ * @param g The generation we sent the coded packet out.
+ * @param fb Pointer to the start of the array of `generation_feedback` in our `ncm_hdr_coded` header.
+ * @param maxlen Length of the array * sizeof(generation_feedback). (=count in bytes in our header).
+ * @return 0 on success, -1 on error.
+ */
 ssize_t
 generation_feedback(generation_t g, struct generation_feedback *fb,
 		size_t maxlen)
@@ -146,7 +154,7 @@ generation_feedback(generation_t g, struct generation_feedback *fb,
 	generation_t cur;
 
 	count = generation_window_size(g->gl);
-	if (count*sizeof(*fb) > maxlen) {
+	if (count*sizeof(*fb) > maxlen) { // TODO redundant check?
 		LOG(LOG_ERR, "buffer too small");
 		errno = ENOMEM;
 		return -1;
@@ -636,8 +644,11 @@ generation_advance(struct list_head *gl)
 		if (!generation_is_returned(first))
 			break;
 
-		seq = (last->seq + 1) % (GENERATION_MAX_SEQ+1);
+		// derive the next sequence number (we incrementally number
+		seq = (last->seq + 1) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
 		generation_reset(first, seq);
+		// move reset generations to the end of the list.
+		// our generation list is always ordered by seq ("active" generations at the start, reset at the end)
 		list_rotate_left(gl);
 	}
 
@@ -743,14 +754,19 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 
 	g = list_first_entry(gl, struct generation, list);
 	s = generation_get_session(g);
-	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQ);
+	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQUENCE_NUMBER);
 
-	if (delta > 128)//FIXME
+	if (delta > 128)//FIXME TODO magic constant GENERATION_SIZE
 		delta = 0;
 
-	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQ+1);
+	// TODO: what the hell?
+	//   delta is basically the window size on the remote end (lseq=current smallest sequence number on remote)
+    //   as we (in theory) assume matching window sizes, max sequence size matches g->seq?
+	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
 
 	list_for_each_entry(g, gl, list) {
+	    // TODO following assumptions above, this basically assumes all generations completed prior to the current
+	    //   one we received a coded packet for(?)
 		if (g->seq == maxseq)
 			break;
 		generation_assume_complete(g);
@@ -778,7 +794,6 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 		// increment counted received data
 		g->state.rx.data++;
 		if (g->gentype == FORWARD)
-			// we are a forwarder, so forward data
 			rtx_dec(g);
 	}
 	else {
@@ -817,6 +832,7 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 		return g;
 
 	do {
+	    // for receiver: as long as we have decodable data, forward the payload back to the OS
 		ret = tx_decoded_frame(s);
 	} while (ret == 0);
 
@@ -919,7 +935,7 @@ cb_ack(timeout_t t, u32 overrun, void *data)
 	if (overrun > 0)
 		LOG(LOG_ERR, "ack overrun = %d", overrun);
 
-	if (qdelay_packet_cnt() > 10) {
+	if (qdelay_packet_cnt() > 10) { // TODO magic constant, count of packets sent out but now received by ourselves.
 		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
 			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
 		return 0;

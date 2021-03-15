@@ -1,11 +1,14 @@
 AM_CFLAGS = -O2 -Wall
 
+@CODE_COVERAGE_RULES@
+
 lib_LTLIBRARIES = libsimulator.la
 
 libsimulator_la_SOURCES  = generation.c
 libsimulator_la_SOURCES += generation.h
 libsimulator_la_SOURCES += session.c
 libsimulator_la_SOURCES += session.h
+libsimulator_la_SOURCES += global.h
 
 libsimulator_la_CPPFLAGS  = $(LIBMOEP_CFLAGS)
 libsimulator_la_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)
@@ -47,4 +50,4 @@ noinst_HEADERS += ../../libmoepcommon/include/moepcommon/util/maths.h
 noinst_HEADERS += ../../libmoepcommon/include/moepcommon/util/timespec.h
 
 # a bit ugly, but works for now
-noinst_HEADERS += ../../src/global.h
+# noinst_HEADERS += ../../src/global.h

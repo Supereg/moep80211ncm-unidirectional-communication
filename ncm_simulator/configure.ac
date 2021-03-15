@@ -1,4 +1,4 @@
-AC_INIT([Moep80211 NCM Simulator], [1.0], [andi.bauer@tum.de], [ncm_simulator], [https://github.com/Supereg/moep80211ncm-unidirectional-communication])
+AC_INIT([moep80211-ncm-simulator], [1.0], [andi.bauer@tum.de], [ncm_simulator], [https://github.com/Supereg/moep80211ncm-unidirectional-communication])
 #AC_PREREQ([2.69])
 
 AC_PROG_CC
@@ -35,6 +35,13 @@ LIBMOEPRLNC_CFLAGS="-I\$(top_srcdir)/../libmoeprlnc/include"
 AC_SUBST(LIBMOEPRLNC_CFLAGS)
 LIBMOEPRLNC_LIBS="\$(top_builddir)/../libmoeprlnc/libmoeprlnc.la"
 AC_SUBST(LIBMOEPRLNC_LIBS)
+
+AX_CODE_COVERAGE
+AS_IF([test x$enable_code_coverage != xno], [
+	CFLAGS="$CFLAGS $CODE_COVERAGE_CFLAGS"
+	CXXFLAGS="$CXXFLAGS $CODE_COVERAGE_CXXFLAGS"
+	AC_SEARCH_LIBS(gcov_open, gcov, [LDFLAGS="$LDFLAGS $CODE_COVERAGE_LDFLAGS"])
+])
 
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])
 

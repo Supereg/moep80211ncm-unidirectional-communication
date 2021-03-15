@@ -54,5 +54,5 @@ qdelay_loss()
 
 int qdelay_packet_cnt()
 {
-	return (uint16_t)(sent_seq - echo_seq);
+	return (uint16_t)(sent_seq - echo_seq); // TODO mod?
 }

@@ -10,9 +10,9 @@
 int main()
 {
     int number_failed;
-    SRunner *runner;
-    Suite *g_suite;
-    Suite *s_suite;
+    SRunner* runner;
+    Suite* g_suite;
+    Suite* s_suite;
 
     // Create all test suites.
     g_suite = generation_suite();
