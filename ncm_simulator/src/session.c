@@ -291,7 +291,7 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
     // assert((session->type == DESTINATION || session->type == INTERMEDIATE) && "Only a non SOURCE session can add frames to decode!");
 
     if (metadata->ack) {
-        status = parse_ack_payload(&session->generations_list, payload);
+        status = parse_ack_payload(&session->generations_list, (ack_payload_t *) payload);
         if (status != GENERATION_STATUS_SUCCESS) {
             return -1;
         }
