@@ -285,23 +285,37 @@ void session_check_for_decoded_frames(session_t* session) {
 }
 
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) { // TODO replace forward_os (only for internal testing)
-    NCM_GENERATION_STATUS  status;
+    NCM_GENERATION_STATUS status;
 
-    assert((session->type == DESTINATION || session->type == INTERMEDIATE) && "Only a non SOURCE session can add frames to decode!");
+    // Deactivated for ACKs:
+    // assert((session->type == DESTINATION || session->type == INTERMEDIATE) && "Only a non SOURCE session can add frames to decode!");
 
-    status = generation_list_decoder_add_decoded(&session->generations_list, metadata, payload, length);
-    if (status != GENERATION_STATUS_SUCCESS) {
-        return -1;
+    if (metadata->ack) {
+        status = parse_ack_payload(&session->generations_list, payload);
+        if (status != GENERATION_STATUS_SUCCESS) {
+            return -1;
+        }
+    } else {
+        status = generation_list_decoder_add_decoded(&session->generations_list, metadata, payload, length);
+        if (status != GENERATION_STATUS_SUCCESS) {
+            return -1;
+        }
+
+        if (!forward_os) {
+            return 0;
+        }
+
+        session_check_for_decoded_frames(session);   
     }
-
-    if (!forward_os) {
-        return 0;
-    }
-
-    session_check_for_decoded_frames(session);
     return 0;
 }
 
+/**
+ * generates the metadata values for a given session
+ * @param metadata pointer to metadata struct that is to be filled out
+ * @param session pointer to current session
+ * @param ack flag if acknowlegment flag is to be set
+ */
 void session_metadata(coded_packet_metadata_t* metadata, session_t* session, u8 ack) {
     metadata->sid = *(session_get_id(session));
     metadata->generation_sequence = 0;

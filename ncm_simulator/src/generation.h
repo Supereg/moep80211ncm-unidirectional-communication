@@ -44,6 +44,10 @@ typedef enum NCM_GENERATION_STATUS_ENUM {
      * Indicating that no suitable generation was available.
      */
     GENERATION_UNAVAILABLE = -40706,
+    /**
+     * Indicating that the generation window is out of sync for source and destination/forwarder
+     */
+    GENERATION_DESYNC = -40707,
 } NCM_GENERATION_STATUS;
 
 struct generation;
@@ -141,5 +145,7 @@ NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* gene
 u16 get_first_generation_number(struct list_head* generations_list);
 
 void get_generation_feedback(struct list_head* generations_list, ack_payload_t* payload);
+
+int parse_ack_payload(struct list_head* generations_list, ack_payload_t* payload);
 
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_GENERATION_H

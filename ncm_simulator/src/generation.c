@@ -283,10 +283,6 @@ static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generat
     *generation_sequence = generation->sequence_number;
     *length_encoded = length;
 
-    // TODO we currently assume acknowledgment of frames, once they are sent out.
-    //   as we use RLNC_STRUCTURED and no forwarders currently, this works for now.
-    generation->remote_dimension += 1;
-
     return GENERATION_STATUS_SUCCESS;
 }
 
@@ -405,7 +401,23 @@ void get_generation_feedback(struct list_head* generations_list, ack_payload_t* 
 
     payload_ind = 0;
     list_for_each_entry(cur, generations_list, list) {
+        payload[payload_ind].sequence_number = cur->sequence_number;
         payload[payload_ind].receiver_dim = cur->remote_dimension;
         payload_ind++;
     }
+}
+
+int parse_ack_payload(struct list_head* generations_list, ack_payload_t* payload) {
+    struct generation* cur;
+    int payload_ind;
+
+    payload_ind = 0;
+    list_for_each_entry(cur, generations_list, list) {
+        if (!(payload[payload_ind].sequence_number = cur->sequence_number)) {
+            return GENERATION_DESYNC;
+        }
+        cur->remote_dimension = payload[payload_ind].receiver_dim;
+        payload_ind++;
+    }
+    return 0;
 }

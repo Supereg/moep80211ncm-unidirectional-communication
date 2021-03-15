@@ -52,15 +52,16 @@ typedef struct coded_packet_metadata {
     // The smalles sequence number of the current sequence number window
     u16 smallest_generation_sequence;
     // Galois field type
-    u8 gf:2;
+    u8 gf;
     // ACKnowlegment flag
-    u8 ack:1;
+    u8 ack;
     // generation windows size
-    u8 window_size:5;
+    u8 window_size;
 } coded_packet_metadata_t;
 
 // This struct represents the payload that is transported via an ack
 typedef struct ack_payload {
+    u16 sequence_number;
     u8 receiver_dim;
 } ack_payload_t;
 
