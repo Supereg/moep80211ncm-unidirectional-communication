@@ -1,5 +1,6 @@
 import struct
 import binascii
+import argparse
 
 # pip3 install python-libpcap
 from pylibpcap.pcap import rpcap
@@ -227,8 +228,16 @@ def is_moepframe(buf):
         return False
     return struct.unpack(">I", buf[16:20])[0] == 24319
 
+parser = argparse.ArgumentParser()
+parser.add_argument("input_file")
+args = parser.parse_args()
+
+# check if file exists to avoid segfault in rpcap
+with open(args.input_file):
+    pass
+
 i = 0
-for leng, t, pkt in rpcap("demo1.pcap"):
+for leng, t, pkt in rpcap(args.input_file):
     if is_moepframe(pkt):
         fmt(moep_unpack(pkt))
         print()
