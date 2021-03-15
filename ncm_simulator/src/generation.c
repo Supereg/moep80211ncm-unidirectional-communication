@@ -329,9 +329,6 @@ static NCM_GENERATION_STATUS generation_next_decoded(generation_t* generation, s
     generation->next_pivot++;
     *length_decoded = length;
 
-    // dimension has changed, we need to acknowledge that
-    session_transmit_ack_frame(generation->session);
-
     return GENERATION_STATUS_SUCCESS;
 }
 
@@ -376,6 +373,9 @@ static NCM_GENERATION_STATUS generation_decoder_add_decoded(generation_t* genera
 
     // we know for a fact, the remote dimension must equal to the rank of what we have received
     generation->remote_dimension = rlnc_block_rank_decode(generation->rlnc_block);
+
+    // acknowledge the successfull reception and decoding of the packet
+    session_transmit_ack_frame(generation->session);
 
     return GENERATION_STATUS_SUCCESS;
 }
