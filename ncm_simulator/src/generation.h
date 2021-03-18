@@ -142,6 +142,8 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
  */
 NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length);
 
+int generation_list_advance(struct list_head* generation_list);
+
 u16 get_first_generation_number(struct list_head* generations_list);
 
 void get_generation_feedback(struct list_head* generations_list, ack_payload_t* payload);

@@ -307,6 +307,13 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
 
         session_check_for_decoded_frames(session);   
     }
+
+    /**
+     * decoding of coded packet or parsing of ack frame has been successful
+     * we need to call advance_generation to check if any of the generations
+     * is now full for sender or receiver side
+     */
+    (void) generation_list_advance(&session->generations_list);
     return 0;
 }
 

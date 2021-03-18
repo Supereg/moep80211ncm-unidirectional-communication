@@ -187,7 +187,7 @@ static bool generation_is_complete(const generation_t* generation) {
  * @param generation_list - The list of `generation`s to traverse.
  * @return Returns the amount of generations which got reset as they were complete (and thus got moved to the beginning of the list).
  */
-static int generation_list_advance(struct list_head* generation_list) {
+int generation_list_advance(struct list_head* generation_list) {
     generation_t* next;
     generation_t* last;
     int next_sequence_number;
@@ -231,11 +231,7 @@ static NCM_GENERATION_STATUS generation_encoder_add(generation_t* generation, u8
     }
 
     generation->next_pivot++;
-
-    // TODO current generation implementation has the concept of "locked" generations
-    //   locked generation is basically a generation whose encoder is full.
-    //   Do we need that? Seems to be less complicated as we don't have bidirectional streams right?
-
+    
     return 0;
 }
 
@@ -294,12 +290,6 @@ NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* gener
     // TODO we would need to send out encoded frames for all not yet ACK generations(??? timer based?), not just the "next" one.
     status = generation_next_encoded_frame(generation, max_length, &metadata->generation_sequence, buffer, length_encoded);
 
-    // generation_list_advance is to be called once we update any of the configuration state
-    // (e.g. if we receive ACK/get a update remote dimension information),
-    // as this may render a generation complete => thus we can reset it.
-    // TODO this currently assumes instant ACKs, thus we will probably need to move this statement later!
-    (void) generation_list_advance(generation_list);
-
     return status;
 }
 
@@ -339,11 +329,13 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
     status = generation_next_decoded(generation, max_length, buffer, length_decoded);
 
     if (status == GENERATION_FULLY_TRAVERSED) { // generation is fully decoded
-        int advanced_generations = generation_list_advance(generation_list);
+        // deactivated to avoid desync between sender/receiver. only call in session.c? ToDo: Check this
+        
+        /** int advanced_generations = generation_list_advance(generation_list);
         if (advanced_generations > 0) {
             // there are some new/free reset generations, just try again.
             return generation_list_next_decoded(generation_list, max_length, buffer, length_decoded);
-        }
+        }*/
     }
 
     return status;
