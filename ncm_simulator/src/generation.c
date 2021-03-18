@@ -16,6 +16,8 @@
  * Struct holding all state information for a generation.
  */
 struct generation {
+    // reverse pointer to session which generation is part of
+    struct session *session;
     struct list_head list;
     /**
      * Sequence number uniquely identifying the given generation (in the context of a specific session).
@@ -23,10 +25,9 @@ struct generation {
      * It starts at 0 and is monotonously increased for every "new" generation
      * (either by creating a new generation, or by freeing an old generation and allocating a new sequence number).
      *
-     * TODO revise the maximum possible window size (we need to ensure no collisions are possible!)
-     *   at least it must be hold: assert(sequence_number <= GENERATION_MAX_SEQUENCE_NUMBER - 1 && "");
+     * Beware of overflow, this is bigger then it might be needed, but it's easier this way.
      */
-    int sequence_number;
+    u32 sequence_number;
 
     /**
      * The session type of the associated session (See `SESSION_TYPE`):
@@ -73,6 +74,7 @@ generation_t* generation_find(struct list_head* generation_list, u16 sequence_nu
 }
 
 generation_t* generation_init(
+    struct session* session,
     struct list_head* generation_list,
     enum SESSION_TYPE session_type,
     enum MOEPGF_TYPE moepgf_type,
@@ -101,6 +103,7 @@ generation_t* generation_init(
         DIE("Failed to calloc() generation: %s", strerror(errno));
     }
 
+    generation->session = session;
     generation->rlnc_block = rlnc_block_init(generation_size, max_pdu_size, alignment, moepgf_type);
     if (generation->rlnc_block == NULL) {
         free(generation);
@@ -183,7 +186,7 @@ static bool generation_is_complete(const generation_t* generation) {
  * @param generation_list - The list of `generation`s to traverse.
  * @return Returns the amount of generations which got reset as they were complete (and thus got moved to the beginning of the list).
  */
-static int generation_list_advance(struct list_head* generation_list) {
+int generation_list_advance(struct list_head* generation_list) {
     generation_t* next;
     generation_t* last;
     int next_sequence_number;
@@ -227,11 +230,7 @@ static NCM_GENERATION_STATUS generation_encoder_add(generation_t* generation, u8
     }
 
     generation->next_pivot++;
-
-    // TODO current generation implementation has the concept of "locked" generations
-    //   locked generation is basically a generation whose encoder is full.
-    //   Do we need that? Seems to be less complicated as we don't have bidirectional streams right?
-
+    
     return 0;
 }
 
@@ -279,10 +278,6 @@ static NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generat
     *generation_sequence = generation->sequence_number;
     *length_encoded = length;
 
-    // TODO we currently assume acknowledgment of frames, once they are sent out.
-    //   as we use RLNC_STRUCTURED and no forwarders currently, this works for now.
-    generation->remote_dimension += 1;
-
     return GENERATION_STATUS_SUCCESS;
 }
 
@@ -293,12 +288,6 @@ NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* gener
     generation = list_first_entry(generation_list, generation_t, list);
     // TODO we would need to send out encoded frames for all not yet ACK generations(??? timer based?), not just the "next" one.
     status = generation_next_encoded_frame(generation, max_length, &metadata->generation_sequence, buffer, length_encoded);
-
-    // generation_list_advance is to be called once we update any of the configuration state
-    // (e.g. if we receive ACK/get a update remote dimension information),
-    // as this may render a generation complete => thus we can reset it.
-    // TODO this currently assumes instant ACKs, thus we will probably need to move this statement later!
-    (void) generation_list_advance(generation_list);
 
     return status;
 }
@@ -337,15 +326,7 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
     generation = list_first_entry(generation_list, struct generation, list);
 
     status = generation_next_decoded(generation, max_length, buffer, length_decoded);
-
-    if (status == GENERATION_FULLY_TRAVERSED) { // generation is fully decoded
-        int advanced_generations = generation_list_advance(generation_list);
-        if (advanced_generations > 0) {
-            // there are some new/free reset generations, just try again.
-            return generation_list_next_decoded(generation_list, max_length, buffer, length_decoded);
-        }
-    }
-
+    
     return status;
 }
 
@@ -370,6 +351,9 @@ static NCM_GENERATION_STATUS generation_decoder_add_decoded(generation_t* genera
     // we know for a fact, the remote dimension must equal to the rank of what we have received
     generation->remote_dimension = rlnc_block_rank_decode(generation->rlnc_block);
 
+    // acknowledge the successfull reception and decoding of the packet
+    session_transmit_ack_frame(generation->session);
+
     return GENERATION_STATUS_SUCCESS;
 }
 
@@ -386,4 +370,35 @@ NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* gene
     status = generation_decoder_add_decoded(generation, buffer, length);
 
     return status;
+}
+
+u16 get_first_generation_number(struct list_head* generations_list) {
+    return list_first_entry(generations_list, struct generation, list)->sequence_number;
+}
+
+void get_generation_feedback(struct list_head* generations_list, ack_payload_t* payload) {
+    struct generation* cur;
+    int payload_ind;
+
+    payload_ind = 0;
+    list_for_each_entry(cur, generations_list, list) {
+        payload[payload_ind].sequence_number = cur->sequence_number;
+        payload[payload_ind].receiver_dim = cur->remote_dimension;
+        payload_ind++;
+    }
+}
+
+int parse_ack_payload(struct list_head* generations_list, ack_payload_t* payload) {
+    struct generation* cur;
+    int payload_ind;
+
+    payload_ind = 0;
+    list_for_each_entry(cur, generations_list, list) {
+        if (!(payload[payload_ind].sequence_number == cur->sequence_number)) {
+            return GENERATION_DESYNC;
+        }
+        cur->remote_dimension = payload[payload_ind].receiver_dim;
+        payload_ind++;
+    }
+    return 0;
 }

@@ -157,6 +157,7 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
 
     for (int i = 0; i < context->generation_window_size; i++) {
         generation_init(
+            session,
             &session->generations_list,
             session_type,
             context->moepgf_type,
@@ -284,23 +285,51 @@ void session_check_for_decoded_frames(session_t* session) {
 }
 
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) { // TODO replace forward_os (only for internal testing)
-    NCM_GENERATION_STATUS  status;
+    NCM_GENERATION_STATUS status;
 
-    assert((session->type == DESTINATION || session->type == INTERMEDIATE) && "Only a non SOURCE session can add frames to decode!");
+    if (metadata->ack) {
+        assert(session->type == SOURCE || session->type == INTERMEDIATE);
+        status = parse_ack_payload(&session->generations_list, (ack_payload_t *) payload);
+        if (status != GENERATION_STATUS_SUCCESS) {
+            return -1;
+        }
+    } else {
+        assert(session->type == DESTINATION || session->type == INTERMEDIATE);
+        status = generation_list_decoder_add_decoded(&session->generations_list, metadata, payload, length);
+        if (status != GENERATION_STATUS_SUCCESS) {
+            return -1;
+        }
 
-    status = generation_list_decoder_add_decoded(&session->generations_list, metadata, payload, length);
-    if (status != GENERATION_STATUS_SUCCESS) {
-        return -1;
+        if (!forward_os) {
+            return 0;
+        }
+
+        session_check_for_decoded_frames(session);   
     }
 
-    if (!forward_os) {
-        return 0;
-    }
-
-    session_check_for_decoded_frames(session);
+    /**
+     * decoding of coded packet or parsing of ack frame has been successful
+     * we need to call advance_generation to check if any of the generations
+     * is now full for sender or receiver side
+     */
+    (void) generation_list_advance(&session->generations_list);
     return 0;
 }
 
+/**
+ * generates the metadata values for a given session
+ * @param metadata pointer to metadata struct that is to be filled out
+ * @param session pointer to current session
+ * @param ack flag if acknowlegment flag is to be set
+ */
+static void session_metadata(coded_packet_metadata_t* metadata, session_t* session, u8 ack) {
+    metadata->sid = *(session_get_id(session));
+    metadata->generation_sequence = 0; // this will be set by generation_list_next_encoded_frame afterwards
+    metadata->smallest_generation_sequence = get_first_generation_number(&session->generations_list);
+    metadata->gf = GF;
+    metadata->ack = ack;
+    metadata->window_size = GENERATION_WINDOW_SIZE;
+}
 
 int session_transmit_next_encoded_frame(session_t* session) {
     NCM_GENERATION_STATUS status;
@@ -313,6 +342,8 @@ int session_transmit_next_encoded_frame(session_t* session) {
     //  by having **one** "encode" timer for every session, iterating over all generations
     //  checking what has to be sent out.
 
+    session_metadata(&metadata, session, 0);
+
     status = generation_list_next_encoded_frame(&session->generations_list, sizeof(buffer), &metadata, buffer, &length);
 
     if (status != GENERATION_STATUS_SUCCESS) {
@@ -320,6 +351,19 @@ int session_transmit_next_encoded_frame(session_t* session) {
     }
 
     session->context->rtx_callback(session->context, session, &metadata, buffer, length);
+
+    return 0;
+}
+
+int session_transmit_ack_frame(session_t* session) {
+    static ack_payload_t payload[GENERATION_WINDOW_SIZE] = {0};
+    static coded_packet_metadata_t metadata;
+
+    get_generation_feedback(&session->generations_list, payload);
+    
+    session_metadata(&metadata, session, 1);
+
+    session->context->rtx_callback(session->context, session, &metadata, (u8 *) payload, (sizeof(ack_payload_t) * GENERATION_WINDOW_SIZE));
 
     return 0;
 }

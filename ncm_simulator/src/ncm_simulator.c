@@ -86,8 +86,13 @@ int rtx_frame(session_subsystem_context_t* context, session_t* session, coded_pa
     (void) context;
     (void) session;
 
-    LOG(LOG_INFO, "Callback to RTX frame from sender to received was called!");
-    session_decoder_add(receiver_session, metadata, payload, length, forward_from_source);
+    if (session == receiver_session) {
+        LOG(LOG_INFO, "Callback to RTX frame from receiver to sender was called!");
+        session_decoder_add(sender_session, metadata, payload, length, forward_from_source);    
+    } else {
+        LOG(LOG_INFO, "Callback to RTX frame from sender to receiver was called!");
+        session_decoder_add(receiver_session, metadata, payload, length, forward_from_source);
+    }
 
     return 0;
 }

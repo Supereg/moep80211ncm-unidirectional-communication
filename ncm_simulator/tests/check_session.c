@@ -196,15 +196,23 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ck_assert_int_eq(received->length, strlen(example0));
     ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example0);
+    
+    // forward acknowlegments
+    forward_frames(source, 1, true);
 
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example1, strlen(example1));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
+
+    forward_frames(destination, 1, true);
+    forward_frames(source, 1, true);
 
     // adding the third frame, will test if generation_list_advance works properly
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example2, strlen(example2));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    forward_frames(destination, 2, true);
+    // forward acknowlegments
+    forward_frames(destination, 1, true);
+    forward_frames(source, 1, true);
 
     received = peek_os_frame_entry(1);
     ck_assert_int_eq(received->length, strlen(example1));
