@@ -288,7 +288,7 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
     NCM_GENERATION_STATUS status;
 
     if (metadata->ack) {
-        assert(session->type == SOURCE);
+        assert(session->type == SOURCE || session->type == INTERMEDIATE);
         status = parse_ack_payload(&session->generations_list, (ack_payload_t *) payload);
         if (status != GENERATION_STATUS_SUCCESS) {
             return -1;
