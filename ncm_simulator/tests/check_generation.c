@@ -20,13 +20,29 @@
 static LIST_HEAD(check_generation_list);
 static LIST_HEAD(check_generation_list0);
 
+session_subsystem_context_t* context;
+session_t* session;
+
+static u8 address_src[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
+static u8 address_dst[IEEE80211_ALEN] = {0x43, 0x43, 0x43, 0x43, 0x43, 0x43};
+
+
+int nop(session_subsystem_context_t* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) { return 0; }
 
 /**
  * Setup is called before **every** test of a `TCase` (Test case).
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_generation_setup() {
+    context = session_subsystem_init(
+        CHECK_GENERATION_SIZE,
+        CHECK_GENERATION_WINDOW_SIZE,
+        CHECK_GF_TYPE,
+        address_src,
+        nop,
+        nop);
 
+    session = session_register(context, address_src, address_dst);
 }
 
 /**
@@ -34,6 +50,8 @@ void test_generation_setup() {
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_generation_teardown() {
+    session_subsystem_close(context);
+
     generation_list_free(&check_generation_list);
     generation_list_free(&check_generation_list0);
 }
@@ -45,7 +63,7 @@ START_TEST(test_generation_creation) {
     generation_t* loop_generation;
 
     // basic generation init checks
-    generation0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    generation0 = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
     ck_assert_int_eq(generation0->sequence_number, 0);
     ck_assert_int_eq(generation0->session_type, SOURCE);
     ck_assert_int_eq(generation0->generation_size, CHECK_GENERATION_SIZE);
@@ -55,7 +73,7 @@ START_TEST(test_generation_creation) {
     ck_assert_int_eq(generation_space_remaining(generation0), CHECK_GENERATION_SIZE);
 
     for (int i = 1; i < 10; i++) { // do some loops to check that sequence number is incremented properly
-        loop_generation = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+        loop_generation = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
         ck_assert_int_eq(loop_generation->sequence_number, i);
     }
 }
@@ -65,13 +83,15 @@ END_TEST
 
 START_TEST(test_generation_source) {
     generation_t* generation;
+    session_subsystem_context_t* sender_context;
+    
     NCM_GENERATION_STATUS  status;
     ssize_t returned_length;
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
     char* example1 = "What Up???";
 
-    generation = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    generation = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
 
     status = generation_encoder_add(generation, (u8*) buffer, CHECK_MAX_PDU + 1);
     ck_assert_int_eq(status, GENERATION_PACKET_TOO_LARGE);
@@ -99,8 +119,8 @@ START_TEST(test_generation_destination) {
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
 
-    source = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
-    destination = generation_init(&check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    source = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    destination = generation_init(session, &check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
 
     status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_EMPTY);
@@ -142,10 +162,10 @@ START_TEST(test_generation_advance_source) {
     char* example1 = "Hello World2!";
     char* example2 = "Hello World3!";
 
-    source_gen0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    source_gen0 = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
     ck_assert_int_eq(source_gen0->sequence_number, 0);
     // TODO check_generation_list0
-    source_gen1 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    source_gen1 = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
     ck_assert_int_eq(source_gen1->sequence_number, 1);
 
     status = generation_list_encoder_add(&check_generation_list, (u8*) example0, strlen(example0));
@@ -158,9 +178,15 @@ START_TEST(test_generation_advance_source) {
     status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
     ck_assert_int_eq(metadata.generation_sequence, 0);
+    // simulate reception of ack frame
+    source_gen0->remote_dimension++;
+    generation_list_advance(&check_generation_list);
     status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
     ck_assert_int_eq(metadata.generation_sequence, 0);
+    // simulate reception of ack frame
+    source_gen0->remote_dimension++;
+    generation_list_advance(&check_generation_list);
 
     status = generation_list_encoder_add(&check_generation_list, (u8*) example2, strlen(example2));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
@@ -169,7 +195,6 @@ START_TEST(test_generation_advance_source) {
     ck_assert_int_eq(source_gen0->sequence_number, 2);
     ck_assert_int_eq(source_gen0->next_pivot, 0);
     ck_assert_int_eq(source_gen0->remote_dimension, 0);
-
 
     memset(buffer, 0, CHECK_MAX_PDU);
     length = rlnc_block_get(source_gen1->rlnc_block, 0, buffer, CHECK_MAX_PDU);
