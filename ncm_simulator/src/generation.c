@@ -405,7 +405,7 @@ int parse_ack_payload(struct list_head* generations_list, ack_payload_t* payload
 
     payload_ind = 0;
     list_for_each_entry(cur, generations_list, list) {
-        if (!(payload[payload_ind].sequence_number = cur->sequence_number)) {
+        if (!(payload[payload_ind].sequence_number == cur->sequence_number)) {
             return GENERATION_DESYNC;
         }
         cur->remote_dimension = payload[payload_ind].receiver_dim;
