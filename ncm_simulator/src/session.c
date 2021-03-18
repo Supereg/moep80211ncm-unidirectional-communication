@@ -287,15 +287,14 @@ void session_check_for_decoded_frames(session_t* session) {
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) { // TODO replace forward_os (only for internal testing)
     NCM_GENERATION_STATUS status;
 
-    // Deactivated for ACKs:
-    // assert((session->type == DESTINATION || session->type == INTERMEDIATE) && "Only a non SOURCE session can add frames to decode!");
-
     if (metadata->ack) {
+        assert(session->type == SOURCE);
         status = parse_ack_payload(&session->generations_list, (ack_payload_t *) payload);
         if (status != GENERATION_STATUS_SUCCESS) {
             return -1;
         }
     } else {
+        assert(session->type == DESTINATION || session->type == INTERMEDIATE);
         status = generation_list_decoder_add_decoded(&session->generations_list, metadata, payload, length);
         if (status != GENERATION_STATUS_SUCCESS) {
             return -1;
@@ -323,9 +322,9 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
  * @param session pointer to current session
  * @param ack flag if acknowlegment flag is to be set
  */
-void session_metadata(coded_packet_metadata_t* metadata, session_t* session, u8 ack) {
+static void session_metadata(coded_packet_metadata_t* metadata, session_t* session, u8 ack) {
     metadata->sid = *(session_get_id(session));
-    metadata->generation_sequence = 0;
+    metadata->generation_sequence = 0; // this will be set by generation_list_next_encoded_frame afterwards
     metadata->smallest_generation_sequence = get_first_generation_number(&session->generations_list);
     metadata->gf = GF;
     metadata->ack = ack;
@@ -335,7 +334,7 @@ void session_metadata(coded_packet_metadata_t* metadata, session_t* session, u8 
 int session_transmit_next_encoded_frame(session_t* session) {
     NCM_GENERATION_STATUS status;
     static u8 buffer[MAX_PDU_SIZE] = {0};
-    static coded_packet_metadata_t* metadata;
+    static coded_packet_metadata_t metadata;
     size_t length;
 
     // TODO the current implementation has a "encode" timer for **Every** generation,
@@ -343,31 +342,28 @@ int session_transmit_next_encoded_frame(session_t* session) {
     //  by having **one** "encode" timer for every session, iterating over all generations
     //  checking what has to be sent out.
 
-    metadata = malloc(sizeof(coded_packet_metadata_t));
-    session_metadata(metadata, session, 0);
+    session_metadata(&metadata, session, 0);
 
-    status = generation_list_next_encoded_frame(&session->generations_list, sizeof(buffer), metadata, buffer, &length);
+    status = generation_list_next_encoded_frame(&session->generations_list, sizeof(buffer), &metadata, buffer, &length);
 
     if (status != GENERATION_STATUS_SUCCESS) {
         return -1;
     }
 
-    session->context->rtx_callback(session->context, session, metadata, buffer, length);
+    session->context->rtx_callback(session->context, session, &metadata, buffer, length);
 
     return 0;
 }
 
 int session_transmit_ack_frame(session_t* session) {
-    ack_payload_t* payload;
-    coded_packet_metadata_t* metadata;
+    static ack_payload_t payload[GENERATION_WINDOW_SIZE] = {0};
+    static coded_packet_metadata_t metadata;
 
-    payload = calloc(GENERATION_WINDOW_SIZE, sizeof(ack_payload_t));
     get_generation_feedback(&session->generations_list, payload);
     
-    metadata = malloc(sizeof(coded_packet_metadata_t));
-    session_metadata(metadata, session, 1);
+    session_metadata(&metadata, session, 1);
 
-    session->context->rtx_callback(session->context, session, metadata, (u8 *) payload, (sizeof(ack_payload_t) * GENERATION_WINDOW_SIZE));
+    session->context->rtx_callback(session->context, session, &metadata, (u8 *) payload, (sizeof(ack_payload_t) * GENERATION_WINDOW_SIZE));
 
     return 0;
 }

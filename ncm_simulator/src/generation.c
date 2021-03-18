@@ -25,10 +25,9 @@ struct generation {
      * It starts at 0 and is monotonously increased for every "new" generation
      * (either by creating a new generation, or by freeing an old generation and allocating a new sequence number).
      *
-     * TODO revise the maximum possible window size (we need to ensure no collisions are possible!)
-     *   at least it must be hold: assert(sequence_number <= GENERATION_MAX_SEQUENCE_NUMBER - 1 && "");
+     * Beware of overflow, this is bigger then it might be needed, but it's easier this way.
      */
-    u16 sequence_number;
+    u32 sequence_number;
 
     /**
      * The session type of the associated session (See `SESSION_TYPE`):
@@ -327,17 +326,7 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
     generation = list_first_entry(generation_list, struct generation, list);
 
     status = generation_next_decoded(generation, max_length, buffer, length_decoded);
-
-    if (status == GENERATION_FULLY_TRAVERSED) { // generation is fully decoded
-        // deactivated to avoid desync between sender/receiver. only call in session.c? ToDo: Check this
-        
-        /** int advanced_generations = generation_list_advance(generation_list);
-        if (advanced_generations > 0) {
-            // there are some new/free reset generations, just try again.
-            return generation_list_next_decoded(generation_list, max_length, buffer, length_decoded);
-        }*/
-    }
-
+    
     return status;
 }
 

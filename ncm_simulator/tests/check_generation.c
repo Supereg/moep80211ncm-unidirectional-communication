@@ -34,6 +34,7 @@ int nop(session_subsystem_context_t* context, session_t* session, coded_packet_m
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_generation_setup() {
+    // TODO: this generates a seperate generation list, this might be a problem later?
     context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
@@ -83,9 +84,7 @@ END_TEST
 
 START_TEST(test_generation_source) {
     generation_t* generation;
-    session_subsystem_context_t* sender_context;
-    
-    NCM_GENERATION_STATUS  status;
+    NCM_GENERATION_STATUS status;
     ssize_t returned_length;
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
