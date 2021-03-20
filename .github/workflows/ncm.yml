@@ -84,5 +84,5 @@ jobs:
       - name: Valgrind NCM Simulator
         if: matrix.configuration == 'debug' # Only use valgrind with compiler optimizations disabled
         # CK_FORK=no so we don't report about "still reachable" of check framework: https://libcheck.github.io/check/doc/check_html/check_4.html#Finding-Memory-Leaks
-        run: CK_FORK=no valgrind --leak-check=full ./tests/check_simulator
+        run: CK_FORK=no valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 ./tests/check_simulator
         working-directory: ${{ env.build-directory }}/ncm_simulator
