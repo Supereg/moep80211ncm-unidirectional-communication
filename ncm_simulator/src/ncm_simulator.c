@@ -168,9 +168,117 @@ void run_ci_example() {
     assert(ret == 0);
 }
 
+typedef struct test {
+    int tx_src; // negative number of transmitted src frames, positive number of transmitted redundant frames
+    double tx_red; // based on link quality, probably negative, expected number of retransmission.
+
+    int stat_redundant_transmission;
+    int stat_data_transmission;
+
+    bool is_forwarder;
+
+    int window_index;
+} test_t;
+
+static void describe(const test_t* test, char* func) {
+    printf("%s => %d: src: %d, red: %f, stat_data: %d, stat_redund: %d\n",
+           func, test->window_index, test->tx_src, test->tx_red, test->stat_data_transmission, test->stat_redundant_transmission);
+}
+
+static double rtx(const test_t* test) {
+    double d = ((double)test->tx_src + test->tx_red);
+    printf("rtx=%f\n", d);
+    return d;
+}
+
+static void rtx_dec(test_t* test) {
+    static double static_link_quality = 0.8;
+    static double session_redundancy = 1.0/0.8; // = 1.25
+
+    if (rtx(test) >= 0.0) {
+        test->tx_src = 0;
+        test->tx_red = 0.0;
+    }
+
+    if (test->is_forwarder) {
+        // TODO rtx_inc is not called for forwarders (this tx_src has no meaning)
+        test->tx_red -= session_redundancy;
+    } else {
+        test->tx_src -= 1;
+        test->tx_red -= session_redundancy - 1.0; // TODO only subtract 1.0 if its greater than 1
+    }
+
+    describe(test, "rtx_dec");
+}
+
+static void rtx_inc(test_t* test) {
+    if (test->tx_src < 0) {
+        test->tx_src += 1;
+        test->stat_data_transmission++;
+        describe(test, "rtx_inc");
+        return;
+    }
+
+    test->tx_red += 1.0;
+    test->stat_redundant_transmission++;
+
+    describe(test, "rtx_inc");
+}
+
+static void rtx_reset(test_t* test) {
+    test->tx_src = 0;
+    test->tx_red = 0.0;
+    describe(test, "rtx_reset");
+}
+
+#define GENERATION_RTX_MAX_TIMEOUT	20
+#define GENERATION_RTX_MIN_TIMEOUT	5
+
+static struct itimerspec* rtx_timeout(const test_t* test) {
+    double t;
+
+    if (rtx(test) > -1) {
+        t = (double)GENERATION_RTX_MIN_TIMEOUT;
+        t += test->window_index + rtx(test) + 1.0;
+        t = min(t, (double) GENERATION_RTX_MAX_TIMEOUT);
+    } else {
+        t = 0;
+    }
+
+    //t += qdelay_get() / 2; (thats uncommented from the real code actually)
+
+    printf("rtx_timeout=%f\n", t);
+
+    return timeout_msec((int)t, 0);
+}
+
+void run_test() {
+    test_t test0 = {
+        .tx_src = 0,
+        .tx_red = 0,
+        .window_index = 0,
+        .stat_data_transmission = 0,
+        .stat_redundant_transmission = 0,
+        .is_forwarder = false,
+    };
+
+    printf("encoder_add----------------\n");
+    rtx_dec(&test0);
+    rtx_dec(&test0);
+    printf("setting timeout with------------\n");
+    rtx_timeout(&test0);
+    printf("Called rtx cb---------------\n");
+    rtx_inc(&test0);
+    rtx_inc(&test0);
+    rtx_inc(&test0);
+    rtx_timeout(&test0);
+}
+
 int main(int argc, char *argv[]) {
     static u8 sender_address[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
     static u8 receiver_address[IEEE80211_ALEN] = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
+
+    run_test();
 
     moep_callback_t callback;
 
@@ -181,6 +289,19 @@ int main(int argc, char *argv[]) {
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
     printf("Starting the NCM Simulator...\n");
+    u16 window_id = 65535;
+    u16 generation_num = 1;
+    u16 max_num = 65535;
+    int window_size = 5;
+    u16 result = generation_num - window_id;
+    u16 resultadd = result + (max_num + 1);
+    u16 asdf = resultadd % (max_num + 1);
+    u16 id = asdf % window_size;
+    printf("Result: %d; resultadd: %d; asdf: %d; adw: %d\n", result, resultadd, asdf, id);
+    printf("delta: %d\n", delta(generation_num, window_id, 5));
+    printf("delta++: %d\n", delta(generation_num, window_id, max_num) % window_size);
+    printf("delta: %d\n", delta(window_id, generation_num, max_num));
+    printf("delta++: %d\n", delta(window_id, generation_num, max_num) % window_size);
 
     sender_context = init_context(sender_address);
     receiver_context = init_context(receiver_address);

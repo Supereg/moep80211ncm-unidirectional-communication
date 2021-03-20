@@ -23,7 +23,7 @@ int main()
     srunner_add_suite(runner, s_suite);
 
     // Execute the runner.
-    srunner_run_all(runner, CK_NORMAL);
+    srunner_run_all(runner, CK_VERBOSE);
     number_failed = srunner_ntests_failed(runner);
     srunner_free(runner);
 

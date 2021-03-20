@@ -1,6 +1,8 @@
 **/build
 **.pdf
 
+kernel_headers
+
 **/*.cache
 
 .idea

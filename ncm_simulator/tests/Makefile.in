@@ -101,6 +101,7 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am_check_simulator_OBJECTS = check_simulator-check_main.$(OBJEXT) \
+	check_simulator-check_utils.$(OBJEXT) \
 	check_simulator-check_generation.$(OBJEXT) \
 	check_simulator-check_session.$(OBJEXT)
 check_simulator_OBJECTS = $(am_check_simulator_OBJECTS)
@@ -133,7 +134,8 @@ depcomp = $(SHELL) $(top_srcdir)/../depcomp
 am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = ./$(DEPDIR)/check_simulator-check_generation.Po \
 	./$(DEPDIR)/check_simulator-check_main.Po \
-	./$(DEPDIR)/check_simulator-check_session.Po
+	./$(DEPDIR)/check_simulator-check_session.Po \
+	./$(DEPDIR)/check_simulator-check_utils.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -525,8 +527,8 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-check_simulator_SOURCES = check_main.c check_generation.c \
-	check_session.c check_simulator.h \
+check_simulator_SOURCES = check_main.c check_utils.c check_utils.h \
+	check_generation.c check_session.c check_simulator.h \
 	\$(top_builddir)/src/generation.h \
 	\$(top_builddir)/src/session.h
 check_simulator_CFLAGS = @CHECK_CFLAGS@
@@ -604,6 +606,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_generation.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_main.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_session.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_utils.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
 	@$(MKDIR_P) $(@D)
@@ -648,6 +651,20 @@ check_simulator-check_main.obj: check_main.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_main.c' object='check_simulator-check_main.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_main.obj `if test -f 'check_main.c'; then $(CYGPATH_W) 'check_main.c'; else $(CYGPATH_W) '$(srcdir)/check_main.c'; fi`
+
+check_simulator-check_utils.o: check_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_utils.o -MD -MP -MF $(DEPDIR)/check_simulator-check_utils.Tpo -c -o check_simulator-check_utils.o `test -f 'check_utils.c' || echo '$(srcdir)/'`check_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_utils.Tpo $(DEPDIR)/check_simulator-check_utils.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_utils.c' object='check_simulator-check_utils.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_utils.o `test -f 'check_utils.c' || echo '$(srcdir)/'`check_utils.c
+
+check_simulator-check_utils.obj: check_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_utils.obj -MD -MP -MF $(DEPDIR)/check_simulator-check_utils.Tpo -c -o check_simulator-check_utils.obj `if test -f 'check_utils.c'; then $(CYGPATH_W) 'check_utils.c'; else $(CYGPATH_W) '$(srcdir)/check_utils.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_utils.Tpo $(DEPDIR)/check_simulator-check_utils.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_utils.c' object='check_simulator-check_utils.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_utils.obj `if test -f 'check_utils.c'; then $(CYGPATH_W) 'check_utils.c'; else $(CYGPATH_W) '$(srcdir)/check_utils.c'; fi`
 
 check_simulator-check_generation.o: check_generation.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_generation.o -MD -MP -MF $(DEPDIR)/check_simulator-check_generation.Tpo -c -o check_simulator-check_generation.o `test -f 'check_generation.c' || echo '$(srcdir)/'`check_generation.c
@@ -979,6 +996,7 @@ distclean: distclean-am
 		-rm -f ./$(DEPDIR)/check_simulator-check_generation.Po
 	-rm -f ./$(DEPDIR)/check_simulator-check_main.Po
 	-rm -f ./$(DEPDIR)/check_simulator-check_session.Po
+	-rm -f ./$(DEPDIR)/check_simulator-check_utils.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-tags
@@ -1027,6 +1045,7 @@ maintainer-clean: maintainer-clean-am
 		-rm -f ./$(DEPDIR)/check_simulator-check_generation.Po
 	-rm -f ./$(DEPDIR)/check_simulator-check_main.Po
 	-rm -f ./$(DEPDIR)/check_simulator-check_session.Po
+	-rm -f ./$(DEPDIR)/check_simulator-check_utils.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

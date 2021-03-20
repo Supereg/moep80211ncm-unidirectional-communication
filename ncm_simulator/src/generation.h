@@ -8,7 +8,7 @@
 #include <moepcommon/list.h>
 #include "session.h"
 
-#define GENERATION_MAX_SEQUENCE_NUMBER INT16_MAX
+#define GENERATION_MAX_SEQUENCE_NUMBER UINT16_MAX
 
 /**
  * Defines a value space for any errors which may be returned from the public interface of generation.c
@@ -44,15 +44,21 @@ typedef enum NCM_GENERATION_STATUS_ENUM {
      * Indicating that no suitable generation was available.
      */
     GENERATION_UNAVAILABLE = -40706,
-    /**
-     * Indicating that the generation window is out of sync for source and destination/forwarder
-     */
-    GENERATION_DESYNC = -40707,
 } NCM_GENERATION_STATUS;
 
 struct generation;
 /// Opaque type for a `generation` struct
 typedef struct generation generation_t;
+
+enum GENERATION_EVENT {
+    GENERATION_EVENT_ACK,
+    GENERATION_EVENT_ENCODED,
+    GENERATION_EVENT_RESET,
+    GENERATION_EVENT_SESSION_REDUNDANCY,
+};
+
+// TODO document the result part (might be NULL)
+typedef void (*generation_event_handler)(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result);
 
 /**
  * Initializes a new `generation_t` struct holding all state relevant to generation.
@@ -63,16 +69,18 @@ typedef struct generation generation_t;
  * @param generation_size - The generation size (= amount of packets in one generation).
  * @param max_pdu_size - The maximum pdu size (= the maximum frame size).
  * @param alignment - Memory alignment of the coding matrix, passed to libmoeprlnc.
+ * // TODO document the two new parameters?
  * @return The created `generation_t`, guaranteed to be non NULL.
  */
 generation_t* generation_init(
-        struct session* session,
         struct list_head* generation_list,
         enum SESSION_TYPE session_type,
         enum MOEPGF_TYPE moepgf_type,
         int generation_size,
         size_t max_pdu_size,
-        size_t alignment);
+        size_t alignment,
+        generation_event_handler event_handler,
+        void* event_data);
 
 /**
  * Frees the memory for a given generation.
@@ -118,7 +126,8 @@ NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_l
  * @param length_encoded - Pointer to store the length of the encoded payload.
  * @return Returns an `NCM_GENERATION_STATUS`. Note parameters `metadata` and `length_encoded` are only written to on a `GENERATION_STATUS_SUCCESS`.
  */
-NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, coded_packet_metadata_t* metadata, u8* buffer, size_t* length_encoded);
+// TODO NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, coded_packet_metadata_t* metadata, u8* buffer, size_t* length_encoded);
+NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u16* generation_sequence, u8* buffer, size_t* length_encoded);
 
 /**
  * Used to retrieve the next decodable frame of the list of generations.
@@ -140,14 +149,16 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
  * @param length - Length of the encoded frame.
  * @return Returns a `NCM_GENERATION_STATUS`.
  */
-NCM_GENERATION_STATUS generation_list_decoder_add_decoded(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length);
+NCM_GENERATION_STATUS generation_list_receive_frame(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length);
 
 int generation_list_advance(struct list_head* generation_list);
 
-u16 get_first_generation_number(struct list_head* generations_list);
+void generation_write_ack_payload(struct list_head* generations_list, ack_payload_t* payload);
 
-void get_generation_feedback(struct list_head* generations_list, ack_payload_t* payload);
+int generation_window_size(struct list_head* generations_list);
 
-int parse_ack_payload(struct list_head* generations_list, ack_payload_t* payload);
+u16 generation_window_id(struct list_head* generations_list);
+
+int generation_index(struct list_head* generations_list, generation_t* generation);
 
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_GENERATION_H

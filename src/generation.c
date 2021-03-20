@@ -756,17 +756,13 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	s = generation_get_session(g);
 	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQUENCE_NUMBER);
 
-	if (delta > 128)//FIXME TODO magic constant GENERATION_SIZE
+	// e.g. lseq=1; seq=2 => delta=32767
+	if (delta > 128)//FIXME TODO magic constant
 		delta = 0;
 
-	// TODO: what the hell?
-	//   delta is basically the window size on the remote end (lseq=current smallest sequence number on remote)
-    //   as we (in theory) assume matching window sizes, max sequence size matches g->seq?
 	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
 
 	list_for_each_entry(g, gl, list) {
-	    // TODO following assumptions above, this basically assumes all generations completed prior to the current
-	    //   one we received a coded packet for(?)
 		if (g->seq == maxseq)
 			break;
 		generation_assume_complete(g);
@@ -775,19 +771,16 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	(void) generation_advance(gl);
 
 	if (!(g = generation_find(gl, hdr->seq))) {
-		// this is an acknowledgement that cannot be matched to any existing generation (?)
-		// and is therefore counted as a late acknowledgement (by returning NULL)
 		if (len > 0) {
 			g = list_first_entry(gl, struct generation, list);
 			timeout_settime(g->task.ack, TIMEOUT_FLAG_INACTIVE,
-				timeout_usec(GENERATION_ACK_MIN_TIMEOUT*1000,
+				timeout_usec(GENERATION_ACK_TIMEOUT * 1000,
 						GENERATION_ACK_INTERVAL*1000));
 		}
 		return NULL;
 	}
 
 	if (len > 0) {
-		// no acknowledgement but data, try to deocde
 		ret = decoder_add(g, payload, len);
 		if (0 > ret)
 			DIE("decoder_add() failed: %d", ret);
@@ -797,7 +790,6 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 			rtx_dec(g);
 	}
 	else {
-		// explicit acknowledgement
 		g->state.rx.ack++;
 	}
 
@@ -806,24 +798,20 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	if (len > 0) {
 		if (g->gentype == FORWARD) {
 			if (generation_is_decoded(g))
-				// send acknowlegment? only when generation is fully decoded?
 				timeout_settime(g->task.ack,
 					TIMEOUT_FLAG_INACTIVE,
 					timeout_usec(
-					GENERATION_ACK_MIN_TIMEOUT*1000,
+                        GENERATION_ACK_TIMEOUT * 1000,
 					GENERATION_ACK_INTERVAL*1000));
 			else
-				// foward only if not fully decoded?
 				timeout_settime(g->task.rtx,
 					TIMEOUT_FLAG_SHORTEN, rtx_timeout(g));
 		} else {
-			// we are the destination
 			if (generation_remote_flow_decoded(g))
-				// send acknowlegment?
 				timeout_settime(g->task.ack,
 					TIMEOUT_FLAG_INACTIVE,
 					timeout_usec(
-					GENERATION_ACK_MIN_TIMEOUT*1000,
+                        GENERATION_ACK_TIMEOUT * 1000,
 					GENERATION_ACK_INTERVAL*1000));
 		}
 	}
@@ -878,6 +866,7 @@ generation_index(const generation_t g)
 	first = list_first_entry(g->gl, struct generation, list);
 	winsize = generation_window_size(g->gl);
 
+	// TODO this can produce negative results
 	return delta(g->seq, first->seq, winsize);
 }
 

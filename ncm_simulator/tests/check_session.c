@@ -9,15 +9,14 @@
 //
 
 #include "check_simulator.h"
+#include "check_utils.h"
 
 #include <stdio.h>
 #include <check.h>
 
-#include <moepcommon/list.h>
 #include <moepcommon/util.h>
 
-#include "../src/session.h"
-#include "../src/session.c"
+#include "../src/session.c" // NOLINT(bugprone-suspicious-include)
 
 static u8 address_src[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
 static u8 address_intermediate[IEEE80211_ALEN] = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
@@ -28,71 +27,33 @@ session_subsystem_context_t* intermediate_context;
 session_subsystem_context_t* dst_context;
 
 /**
- * Used to store a call to the `rtx_callback` in order to make it available to the test case.
- */
-typedef struct rtx_frame_entry {
-    struct list_head list;
-    int index;
-
-    session_t* session;
-    coded_packet_metadata_t metadata;
-    u8 payload[CHECK_MAX_PDU];
-    size_t length;
-} rtx_frame_entry_t;
-static LIST_HEAD(rtx_frame_entries);
-
-/**
- * Use to store a call to the `os_callback` in order to make it available to the test case.
- */
-typedef struct os_frame_entry {
-    struct list_head list;
-    int index;
-
-    session_t* session;
-    u16 ether_type;
-    u8 payload[CHECK_MAX_PDU];
-    size_t length;
-} os_frame_entry_t;
-static LIST_HEAD(os_frame_entries);
-
-// Bunch of forward declaration for the whole "callback storage" API
-static int check_rtx_frame(session_subsystem_context_t* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
-static int check_os_frame(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length);
-static rtx_frame_entry_t* pop_rtx_frame_entry(); // Don't forget to free(...) after pop
-static os_frame_entry_t * pop_os_frame_entry(); // Don't forget to free(...) after pop
-static rtx_frame_entry_t* peek_rtx_frame_entry(int index);
-static os_frame_entry_t * peek_os_frame_entry(int index);
-static void forward_frames(session_t* destination, int count, bool forward_from_source);
-static void free_rtx_frame_entries();
-static void free_os_frame_entries();
-
-
-/**
  * Setup is called before **every** test of a `TCase` (Test case).
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_session_setup() {
+    init_check_utils();
+
     src_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_src,
-        check_rtx_frame,
-        check_os_frame);
+        check_rtx_frame_callback,
+        check_os_frame_callback);
     intermediate_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_intermediate,
-        check_rtx_frame,
-        check_os_frame);
+        check_rtx_frame_callback,
+        check_os_frame_callback);
     dst_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_dst,
-        check_rtx_frame,
-        check_os_frame);
+        check_rtx_frame_callback,
+        check_os_frame_callback);
 }
 
 /**
@@ -100,8 +61,8 @@ void test_session_setup() {
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_session_teardown() {
-    free_rtx_frame_entries();
-    free_os_frame_entries();
+    close_check_utils();
+    check_utils_lists_free();
 
     session_subsystem_close(src_context);
     session_subsystem_close(intermediate_context);
@@ -190,29 +151,28 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example0, strlen(example0));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    forward_frames(destination, 1, true);
+    forward_rtx_frames(destination, 1, true);
+    forward_ack_frames(source, 1);
 
     received = peek_os_frame_entry(0);
     ck_assert_int_eq(received->length, strlen(example0));
     ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example0);
-    
-    // forward acknowlegments
-    forward_frames(source, 1, true);
 
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example1, strlen(example1));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    forward_frames(destination, 1, true);
-    forward_frames(source, 1, true);
+    // TODO tests that the ack reached the source (needs await peeking in the check_utils)
+
+    forward_rtx_frames(destination, 1, true);
+    forward_ack_frames(source, 1);
 
     // adding the third frame, will test if generation_list_advance works properly
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example2, strlen(example2));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    // forward acknowlegments
-    forward_frames(destination, 1, true);
-    forward_frames(source, 1, true);
+    forward_rtx_frames(destination, 1, true);
+    forward_ack_frames(source, 1);
 
     received = peek_os_frame_entry(1);
     ck_assert_int_eq(received->length, strlen(example1));
@@ -251,151 +211,4 @@ Suite* session_suite() {
     suite_add_tcase(suite, session_coding);
 
     return suite;
-}
-
-static int check_rtx_frame(session_subsystem_context_t* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
-    (void) context;
-
-    rtx_frame_entry_t *entry, *last;
-    int index = 0;
-
-    entry = calloc(1, sizeof(rtx_frame_entry_t));
-    if (entry == NULL) {
-        ck_abort_msg("Failed to alloc a rtx_frame_entry_t");
-    }
-
-    if (!list_empty(&rtx_frame_entries)) {
-        last = list_last_entry(&rtx_frame_entries, rtx_frame_entry_t, list);
-        index = last->index + 1;
-    }
-
-    entry->index = index;
-    entry->session = session;
-
-    memcpy(&entry->metadata, metadata, sizeof(coded_packet_metadata_t));
-
-    ck_assert_msg(length <= sizeof(entry->payload), "Received frame inside check_rtx_frame() exceeding the length of rtx_frame_entry_t");
-    memcpy(entry->payload, payload, length);
-    entry->length = length;
-
-    list_add_tail(&entry->list, &rtx_frame_entries);
-
-    return 0;
-}
-
-static int check_os_frame(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length) {
-    (void) context;
-
-    os_frame_entry_t *entry, *last;
-    int index = 0;
-
-    entry = calloc(1, sizeof(os_frame_entry_t));
-    if (entry == NULL) {
-        ck_abort_msg("Failed to alloc a os_frame_entry_t");
-    }
-
-    if (!list_empty(&os_frame_entries)) {
-        last = list_last_entry(&os_frame_entries, os_frame_entry_t, list);
-        index = last->index + 1;
-    }
-
-    entry->index = index;
-    entry->session = session;
-
-    entry->ether_type = ether_type;
-
-    ck_assert_msg(length <= sizeof(entry->payload), "Received frame inside check_os_frame() exceeding the length of os_frame_entry_t");
-    memcpy(entry->payload, payload, length);
-    entry->length = length;
-
-    list_add_tail(&entry->list, &os_frame_entries);
-
-    return 0;
-}
-
-static rtx_frame_entry_t* pop_rtx_frame_entry() {
-    rtx_frame_entry_t* entry;
-
-    ck_assert_msg(!list_empty(&rtx_frame_entries), "Tried popping from an emtpy rtx_frame list");
-
-    entry = list_first_entry(&rtx_frame_entries, rtx_frame_entry_t , list);
-    ck_assert_msg(entry != NULL, "Failed list_first_entry for rtx_frame list");
-
-    list_del(&entry->list);
-
-    return entry;
-}
-
-static os_frame_entry_t * pop_os_frame_entry() {
-    os_frame_entry_t* entry;
-
-    ck_assert_msg(!list_empty(&os_frame_entries), "Tried popping from an emtpy os_frame list");
-
-    entry = list_first_entry(&os_frame_entries, os_frame_entry_t , list);
-    ck_assert_msg(entry != NULL, "Failed list_first_entry for os_frame list");
-
-    list_del(&entry->list);
-
-    return entry;
-}
-
-static rtx_frame_entry_t* peek_rtx_frame_entry(int index) {
-    rtx_frame_entry_t* entry;
-
-    list_for_each_entry(entry, &rtx_frame_entries, list) {
-        if (entry->index == index) {
-            return entry;
-        } else if (entry->index > index) {
-            break;
-        }
-    }
-
-    ck_abort_msg("Failed to find frame entry for given index!");
-}
-
-static os_frame_entry_t * peek_os_frame_entry(int index) {
-    os_frame_entry_t* entry;
-
-    list_for_each_entry(entry, &os_frame_entries, list) {
-        if (entry->index == index) {
-            return entry;
-        } else if (entry->index > index) {
-            break;
-        }
-    }
-
-    ck_abort_msg("Failed to find frame entry for given index!");
-}
-
-static void forward_frames(session_t* destination, int count, bool forward_from_source) {
-    int ret;
-    rtx_frame_entry_t* entry;
-
-    while (count > 0 ) {
-        entry = pop_rtx_frame_entry();
-
-        ret = session_decoder_add(destination, &entry->metadata, entry->payload, entry->length, forward_from_source);
-        ck_assert_int_eq(ret, EXIT_SUCCESS);
-        free(entry);
-
-        count--;
-    }
-}
-
-static void free_rtx_frame_entries() {
-    rtx_frame_entry_t *current, *tmp;
-
-    list_for_each_entry_safe(current, tmp, &rtx_frame_entries, list) {
-        list_del(&current->list);
-        free(current);
-    }
-}
-
-static void free_os_frame_entries() {
-    os_frame_entry_t *current, *tmp;
-
-    list_for_each_entry_safe(current, tmp, &os_frame_entries, list) {
-        list_del(&current->list);
-        free(current);
-    }
 }

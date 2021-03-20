@@ -11,39 +11,21 @@
 #include <stdio.h>
 #include <check.h>
 
-#include <moepcommon/list.h>
-
 #include "check_simulator.h"
+#include "check_utils.h"
+
 #include "../src/generation.h"
-#include "../src/generation.c"
+#include "../src/generation.c" // NOLINT(bugprone-suspicious-include)
 
 static LIST_HEAD(check_generation_list);
 static LIST_HEAD(check_generation_list0);
-
-session_subsystem_context_t* context;
-session_t* session;
-
-static u8 address_src[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
-static u8 address_dst[IEEE80211_ALEN] = {0x43, 0x43, 0x43, 0x43, 0x43, 0x43};
-
-
-int nop(session_subsystem_context_t* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) { return 0; }
 
 /**
  * Setup is called before **every** test of a `TCase` (Test case).
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_generation_setup() {
-    // TODO: this generates a seperate generation list, this might be a problem later?
-    context = session_subsystem_init(
-        CHECK_GENERATION_SIZE,
-        CHECK_GENERATION_WINDOW_SIZE,
-        CHECK_GF_TYPE,
-        address_src,
-        nop,
-        nop);
-
-    session = session_register(context, address_src, address_dst);
+    init_check_utils();
 }
 
 /**
@@ -51,7 +33,8 @@ void test_generation_setup() {
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_generation_teardown() {
-    session_subsystem_close(context);
+    close_check_utils();
+    check_utils_lists_free();
 
     generation_list_free(&check_generation_list);
     generation_list_free(&check_generation_list0);
@@ -64,7 +47,7 @@ START_TEST(test_generation_creation) {
     generation_t* loop_generation;
 
     // basic generation init checks
-    generation0 = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    generation0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
     ck_assert_int_eq(generation0->sequence_number, 0);
     ck_assert_int_eq(generation0->session_type, SOURCE);
     ck_assert_int_eq(generation0->generation_size, CHECK_GENERATION_SIZE);
@@ -74,8 +57,61 @@ START_TEST(test_generation_creation) {
     ck_assert_int_eq(generation_space_remaining(generation0), CHECK_GENERATION_SIZE);
 
     for (int i = 1; i < 10; i++) { // do some loops to check that sequence number is incremented properly
-        loop_generation = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+        loop_generation = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
         ck_assert_int_eq(loop_generation->sequence_number, i);
+        ck_assert_int_eq(generation_index(&check_generation_list, loop_generation), i);
+    }
+}
+END_TEST
+
+START_TEST(test_generation_sequence_number) {
+    // main goal of this test is that all functions properly work with sequence number wrap around!
+
+    struct list_iterator iterator;
+    struct list_iterator* iterator_ptr;
+    generation_t *first, *entry;
+
+    const int window_size = 4;
+    const int seq_space = 6;
+    const u16 start_seq = (GENERATION_MAX_SEQUENCE_NUMBER + 1) - seq_space;
+
+    // create 4 generations in our generation list
+    for (int i = 0; i < window_size; i++) {
+        entry = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+        entry->sequence_number = start_seq + i; // move seq num to the end of the UINT16 window
+    }
+
+    for (int i = 0; i < 2*seq_space; i++) {
+        u16 seq_base = start_seq + i;
+
+        ck_assert_int_eq(generation_window_size(&check_generation_list), window_size);
+        ck_assert_uint_eq(generation_window_id(&check_generation_list), seq_base);
+
+        first = list_first_entry(&check_generation_list, struct generation, list);
+
+        int j = 0;
+        iterator = list_get_iterator(&check_generation_list);
+        iterator_ptr = &iterator;
+
+        while (list_has_next(iterator_ptr)) {
+            if (j >= window_size) {
+                ck_abort_msg("unexpected generation index of %d", j);
+            }
+
+            u16 expected_seq = seq_base + j;
+            entry = list_next_entry(iterator_ptr, struct generation, list);
+
+            ck_assert_msg(entry->sequence_number == expected_seq,
+                          "seq=%d didn't match expected seq=%d at gen_index=%d",
+                          entry->sequence_number, expected_seq, j);
+
+            ck_assert_int_eq(generation_index(&check_generation_list, entry), j);
+
+            j++;
+        }
+
+        generation_assume_complete(first);
+        generation_list_advance(&check_generation_list);
     }
 }
 END_TEST
@@ -90,7 +126,7 @@ START_TEST(test_generation_source) {
     char* example0 = "Hello World!";
     char* example1 = "What Up???";
 
-    generation = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    generation = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
 
     status = generation_encoder_add(generation, (u8*) buffer, CHECK_MAX_PDU + 1);
     ck_assert_int_eq(status, GENERATION_PACKET_TOO_LARGE);
@@ -118,8 +154,8 @@ START_TEST(test_generation_destination) {
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
 
-    source = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
-    destination = generation_init(session, &check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    source = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+    destination = generation_init(&check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
 
     status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_EMPTY);
@@ -155,16 +191,15 @@ START_TEST(test_generation_advance_source) {
 
     u8 buffer[CHECK_MAX_PDU] = {0};
     size_t length;
-    coded_packet_metadata_t metadata;
+    u16 sequence_number;
 
     char* example0 = "Hello World!";
     char* example1 = "Hello World2!";
     char* example2 = "Hello World3!";
 
-    source_gen0 = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    source_gen0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
     ck_assert_int_eq(source_gen0->sequence_number, 0);
-    // TODO check_generation_list0
-    source_gen1 = generation_init(session, &check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT);
+    source_gen1 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
     ck_assert_int_eq(source_gen1->sequence_number, 1);
 
     status = generation_list_encoder_add(&check_generation_list, (u8*) example0, strlen(example0));
@@ -173,18 +208,20 @@ START_TEST(test_generation_advance_source) {
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
 
     // Call "generation_list_next_encoded_frame" two times to simulate sending them out (calling generation_advance)
-    // TODO This is currently heavily built around the assumption that we have instant ACKs
-    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
+    status = generation_next_encoded_frame(source_gen0, CHECK_MAX_PDU, &sequence_number, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
-    ck_assert_int_eq(metadata.generation_sequence, 0);
+    ck_assert_int_eq(sequence_number, 0);
+
     // simulate reception of ack frame
-    source_gen0->remote_dimension++;
+    generation_update_remote_dimension(source_gen0, source_gen0->remote_dimension + 1);
     generation_list_advance(&check_generation_list);
-    status = generation_list_next_encoded_frame(&check_generation_list, CHECK_MAX_PDU, &metadata, buffer, &length);
+
+    status = generation_next_encoded_frame(source_gen0, CHECK_MAX_PDU, &sequence_number, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
-    ck_assert_int_eq(metadata.generation_sequence, 0);
+    ck_assert_int_eq(sequence_number, 0);
+
     // simulate reception of ack frame
-    source_gen0->remote_dimension++;
+    generation_update_remote_dimension(source_gen0, source_gen0->remote_dimension + 1);
     generation_list_advance(&check_generation_list);
 
     status = generation_list_encoder_add(&check_generation_list, (u8*) example2, strlen(example2));
@@ -220,6 +257,7 @@ Suite* generation_suite() {
 
     tcase_add_checked_fixture(generation_handling, test_generation_setup, test_generation_teardown);
     tcase_add_test(generation_handling, test_generation_creation);
+    tcase_add_test(generation_handling, test_generation_sequence_number);
 
     tcase_add_checked_fixture(generation_coding, test_generation_setup, test_generation_teardown);
     tcase_add_test(generation_coding, test_generation_source);

@@ -5,6 +5,8 @@ TESTS = check_simulator
 check_PROGRAMS = check_simulator
 
 check_simulator_SOURCES  = check_main.c
+check_simulator_SOURCES += check_utils.c
+check_simulator_SOURCES += check_utils.h
 check_simulator_SOURCES += check_generation.c
 check_simulator_SOURCES += check_session.c
 check_simulator_SOURCES += check_simulator.h

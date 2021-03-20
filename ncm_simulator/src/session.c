@@ -13,6 +13,27 @@
 
 #include "generation.h"
 
+void session_free(session_t* session); // forward declaration used in session_callback_destroy()
+void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
+
+static void session_generation_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result);
+static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data);
+static int session_ack_callback(timeout_t timeout, u32 overrun, void* data);
+
+struct session_timeouts {
+    /**
+     * Timeout ran with `SESSION_TIMEOUT` delay, removing/cleaning up the session
+     * when timeout is reached. Timeout is reset for every activity on the session.
+     */
+    timeout_t destroy;
+    /**
+     * Acknowledgment timer used to debounce sending out ACKs for our generations.
+     * On every received coded packet, the timer will be scheduled with `SESSION_ACK_TIMEOUT` milliseconds,
+     * combining ACKs if multiple packets receive consecutively.
+     */
+    timeout_t ack;
+};
+
 /**
  * Defines any state of a given session.
  */
@@ -34,21 +55,13 @@ struct session {
      */
     enum SESSION_TYPE type;
 
-    /**
-     * Timeout ran with `SESSION_TIMEOUT` delay, removing/cleaning up the session
-     * when timeout is reached. Timeout is reset for every activity on the session.
-     */
-    timeout_t destroy_timeout;
+    struct session_timeouts timeouts;
 
     /**
      * Linked list, containing all `generation_t`s associated with the given session.
      */
     struct list_head generations_list;
 };
-
-void session_free(session_t* session); // forward declaration used in session_callback_destroy()
-void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
-int session_transmit_next_encoded_frame(session_t* session); // forward declaration use in session_encoder_add()
 
 
 session_subsystem_context_t* session_subsystem_init(
@@ -133,26 +146,21 @@ session_t* session_find(session_subsystem_context_t* context, const u8* ether_so
     return NULL;
 }
 
-static void session_handle_activity(session_t* session) {
+static void session_activity(session_t* session) { // TODO other timeout set functions are located somewhere else!
     int ret;
 
-    ret = timeout_settime(session->destroy_timeout, 0, timeout_msec(SESSION_TIMEOUT, 0));
-    if (ret != 0) {
-        DIE("session_handle_activity() failed to timeout_settime() for destroy timeout: %s", strerror(errno));
-    }
-}
+    assert(session->timeouts.destroy != NULL && "session destroy timeout was never initialized!");
 
-static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data) {
-    (void) timeout;
-    (void) overrun;
-    session_t* session = data;
-    session_free(session);
-    return 0;
+    ret = timeout_settime(session->timeouts.destroy, 0, timeout_msec(SESSION_TIMEOUT, 0));
+    if (ret != 0) {
+        DIE_SESSION(session, "session_activity() failed to timeout_settime() for destroy timeout: %s", strerror(errno));
+    }
 }
 
 session_t* session_register(session_subsystem_context_t* context, const u8* ether_source_host, const u8 *ether_destination_host) {
     enum SESSION_TYPE session_type;
     struct session* session;
+    generation_t* generation;
     int ret;
 
     session_type = session_type_derived(context, ether_source_host, ether_destination_host);
@@ -165,7 +173,7 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
 
     session = calloc(1, sizeof(struct session));
     if (session == NULL) {
-        DIE("Failed to calloc() session: %s", strerror(errno));
+        DIE_SESSION(session, "Failed to calloc() session: %s", strerror(errno));
     }
 
     session->context = context;
@@ -174,28 +182,37 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
     memcpy(session->session_id.destination_address, ether_destination_host, IEEE80211_ALEN);
 
     session->type = session_type;
+    INIT_LIST_HEAD(&session->generations_list);
 
-    ret = timeout_create(CLOCK_MONOTONIC, &session->destroy_timeout, session_destroy_callback, session);
+    ret = timeout_create(CLOCK_MONOTONIC, &session->timeouts.destroy, session_destroy_callback, session);
     if (ret != 0) {
-        free(session);
-        DIE("session_register() failed to create destroy timeout: %s", strerror(errno));
+        session_free(session);
+        DIE_SESSION(session, "session_register() failed to create destroy timeout: %s", strerror(errno));
     }
 
-    session_handle_activity(session); // initializes the destroy_timeout!
+    if (session_type == DESTINATION || session_type == INTERMEDIATE) {
+        ret = timeout_create(CLOCK_MONOTONIC, &session->timeouts.ack, session_ack_callback, session);
+        if (ret != 0) {
+            session_free(session);
+            DIE_SESSION(session, "session_register() failed to create ack timeout: %s", strerror(errno));
+        }
+    }
 
-    INIT_LIST_HEAD(&session->generations_list);
     for (int i = 0; i < context->generation_window_size; i++) {
-        generation_init(
-            session,
+        (void) generation_init(
             &session->generations_list,
             session_type,
             context->moepgf_type,
             context->generation_size,
             MAX_PDU_SIZE,
-            MEMORY_ALIGNMENT);
+            MEMORY_ALIGNMENT,
+            session_generation_event_handler,
+            session);
     }
 
     list_add(&session->list, &context->sessions_list);
+
+    session_activity(session); // initializes the destroy_timeout!
 
     LOG_SESSION(LOG_INFO, session, "New session created");
 
@@ -211,7 +228,13 @@ void session_free(session_t* session) {
 
     generation_list_free(&session->generations_list);
 
-    timeout_delete(session->destroy_timeout);
+    if (session->timeouts.destroy != NULL) {
+        timeout_delete(session->timeouts.destroy);
+    }
+
+    if (session->timeouts.ack != NULL) {
+        timeout_delete(session->timeouts.ack);
+    }
 
     // TODO potential logging file unlink (do we want/need to [re]implement that?)
 
@@ -231,6 +254,26 @@ void session_list_free(session_subsystem_context_t* context) {
     }
 }
 
+
+static void session_timeout_ack_schedule(session_t* session) {
+    int ret;
+    ret = timeout_settime(session->timeouts.ack, TIMEOUT_FLAG_INACTIVE, timeout_msec(SESSION_ACK_TIMEOUT, 0));
+
+    if (ret != 0) {
+        DIE_SESSION(session, "session_timeout_ack_schedule() failed timeout_settime(): %s", strerror(errno));
+    }
+}
+
+static void session_timeout_ack_reset(session_t* session) {
+    int ret;
+    ret = timeout_clear(session->timeouts.ack);
+
+    if (ret != 0) {
+        DIE_SESSION(session, "session_timeout_ack_reset() failed timeout_clear(): %s", strerror(errno));
+    }
+}
+
+
 int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t payload_length) {
     NCM_GENERATION_STATUS status;
     static u8 buffer[MAX_PDU_SIZE] = {0};
@@ -240,7 +283,7 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
 
     assert(session->type == SOURCE && "Only a SOURCE session can add source frames!");
 
-    session_handle_activity(session);
+    session_activity(session);
 
     // 1. prepend our frame buffer with the `coded_payload_metadata` metadata
     //   to preserve ether type and length information in our linear combinations of packets
@@ -269,13 +312,10 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
         return -1;
     }
 
-    // 3. create a new encoded frame and transmit it over radios (TODO replace with timer based solution)
-    session_transmit_next_encoded_frame(session);
-
     return 0;
 }
 
-void session_check_for_decoded_frames(session_t* session) {
+static void session_check_for_decoded_frames(session_t* session) {
     NCM_GENERATION_STATUS  status;
     static u8 buffer[MAX_PDU_SIZE] = {0};
     size_t buffer_length;
@@ -313,37 +353,38 @@ void session_check_for_decoded_frames(session_t* session) {
     }
 }
 
-int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) { // TODO replace forward_os (only for internal testing)
+// TODO replace forward_os (only for internal testing)
+int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) {
     NCM_GENERATION_STATUS status;
 
-    session_handle_activity(session);
-
-    if (metadata->ack) {
-        assert(session->type == SOURCE || session->type == INTERMEDIATE);
-        status = parse_ack_payload(&session->generations_list, (ack_payload_t *) payload);
-        if (status != GENERATION_STATUS_SUCCESS) {
-            return -1;
-        }
-    } else {
-        assert(session->type == DESTINATION || session->type == INTERMEDIATE);
-        status = generation_list_decoder_add_decoded(&session->generations_list, metadata, payload, length);
-        if (status != GENERATION_STATUS_SUCCESS) {
-            return -1;
-        }
-
-        if (!forward_os) {
-            return 0;
-        }
-
-        session_check_for_decoded_frames(session);   
+    if (session->context->moepgf_type != metadata->gf) {
+        LOG_SESSION(LOG_ERR, session, "Received frame with dissimilar gf type. remote=%d; local=%d. Discarding...",
+                    session->context->moepgf_type, metadata->gf);
+        return -1;
     }
 
-    /**
-     * decoding of coded packet or parsing of ack frame has been successful
-     * we need to call advance_generation to check if any of the generations
-     * is now full for sender or receiver side
-     */
-    (void) generation_list_advance(&session->generations_list);
+    if (session->context->generation_window_size != metadata->window_size) {
+        LOG_SESSION(LOG_ERR, session, "Received frame with dissimilar window sizes. remote=%d; local=%d. Discarding...",
+                    session->context->generation_window_size, metadata->window_size);
+        return -1;
+    }
+
+    assert(metadata->ack && (session->type == SOURCE || session->type == INTERMEDIATE)
+        || !metadata->ack && (session->type == DESTINATION || session->type == INTERMEDIATE));
+
+    session_activity(session);
+
+    status = generation_list_receive_frame(&session->generations_list, metadata, payload, length);
+    if (status != GENERATION_STATUS_SUCCESS) {
+        // we require in generation_list_receive_frame that any non-zero status logs an error
+        // no need to do a generic "something went wrong" message here
+        return -1;
+    }
+
+    if (forward_os) {
+        session_check_for_decoded_frames(session);
+    }
+
     return 0;
 }
 
@@ -351,31 +392,26 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
  * generates the metadata values for a given session
  * @param metadata pointer to metadata struct that is to be filled out
  * @param session pointer to current session
- * @param ack flag if acknowlegment flag is to be set
+ * @param ack flag if acknowledgment flag is to be set
  */
-static void session_metadata(coded_packet_metadata_t* metadata, session_t* session, u8 ack) {
+static void session_packet_metadata(coded_packet_metadata_t* metadata, session_t* session, bool ack) {
     metadata->sid = *(session_get_id(session));
     metadata->generation_sequence = 0; // this will be set by generation_list_next_encoded_frame afterwards
-    metadata->smallest_generation_sequence = get_first_generation_number(&session->generations_list);
-    metadata->gf = GF;
+    metadata->window_id = generation_window_id(&session->generations_list);
+    metadata->gf = session->context->moepgf_type;
     metadata->ack = ack;
-    metadata->window_size = GENERATION_WINDOW_SIZE;
+    metadata->window_size = session->context->generation_window_size;
 }
 
-int session_transmit_next_encoded_frame(session_t* session) {
+int session_transmit_encoded_frame(session_t* session, generation_t* generation) {
     NCM_GENERATION_STATUS status;
     static u8 buffer[MAX_PDU_SIZE] = {0};
     static coded_packet_metadata_t metadata;
     size_t length;
 
-    // TODO the current implementation has a "encode" timer for **Every** generation,
-    //  does this have any real reason? If not we can reduce "management overhead"
-    //  by having **one** "encode" timer for every session, iterating over all generations
-    //  checking what has to be sent out.
+    session_packet_metadata(&metadata, session, 0);
 
-    session_metadata(&metadata, session, 0);
-
-    status = generation_list_next_encoded_frame(&session->generations_list, sizeof(buffer), &metadata, buffer, &length);
+    status = generation_next_encoded_frame(generation, sizeof(buffer), &metadata.generation_sequence, buffer, &length);
 
     if (status != GENERATION_STATUS_SUCCESS) {
         return -1;
@@ -390,11 +426,98 @@ int session_transmit_ack_frame(session_t* session) {
     static ack_payload_t payload[GENERATION_WINDOW_SIZE] = {0};
     static coded_packet_metadata_t metadata;
 
-    get_generation_feedback(&session->generations_list, payload);
-    
-    session_metadata(&metadata, session, 1);
+    generation_write_ack_payload(&session->generations_list, payload);
+
+    session_packet_metadata(&metadata, session, true);
 
     session->context->rtx_callback(session->context, session, &metadata, (u8 *) payload, (sizeof(ack_payload_t) * GENERATION_WINDOW_SIZE));
+
+    return 0;
+}
+
+/**
+ * Calculates the number of transmission we expect to be required to successfully transmit a single frame,
+ * based on the current link quality.
+ * The returned value is in the interval of [1.0, infinity).
+ */
+/*
+* TODO how to handle the dependency on the neighbours stuff?
+double session_redundancy(session_t* session) {
+   u8* hw_addr;
+   double redundancy;
+
+   // TODO explicitly not support case 2
+
+   if (!(hw_addr = session_find_remote_address(s))) {
+   // TODO LOG_SESSION
+       LOG(LOG_WARNING, "uplink_quality(): unable to find remote "
+                        "address");
+       return 0.0;
+   }
+
+   if (s->params.rscheme == 0)
+       redundancy = 1.0 / nb_ul_quality(hw_addr, NULL, NULL);
+   else
+       redundancy = nb_ul_redundancy(hw_addr);
+
+   return redundancy;
+}
+*/
+
+
+static void session_generation_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result) {
+    session_t* session;
+    session = data;
+
+    switch (event) {
+        case GENERATION_EVENT_ACK:
+            session_timeout_ack_schedule(session);
+            break;
+        case GENERATION_EVENT_ENCODED:
+            session_transmit_encoded_frame(session, generation);
+            break;
+        case GENERATION_EVENT_RESET:
+            // TODO equivalent to "session_commit" (do we need the stats system though?)
+            break;
+        case GENERATION_EVENT_SESSION_REDUNDANCY:
+            *(double*) result = 1.0; // TODO hook into the neighbours list!
+            break;
+        default:
+            DIE_SESSION(session, "Received unknown generation event: %d", event);
+    }
+}
+
+static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) timeout;
+    (void) overrun;
+    session_t* session = data;
+    session_free(session);
+    return 0;
+}
+
+static int session_ack_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) timeout;
+    (void) overrun;
+    session_t* session;
+    assert(data != NULL && "session pointer not present on session_ack_callback()");
+
+    session = data;
+
+    if (overrun) {
+        LOG_SESSION(LOG_WARNING, session, "session_ack_callback() detected %d skipped executions (overruns)", overrun);
+    }
+
+    /*
+    if (qdelay_packet_cnt() > 10) { // TODO magic constant, count of packets sent out but now received by ourselves.
+		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
+			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
+		return 0;
+	}
+     */
+
+
+    session_transmit_ack_frame(session);
+    session_timeout_ack_reset(session);
 
     return 0;
 }
