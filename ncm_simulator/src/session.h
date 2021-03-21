@@ -156,8 +156,10 @@ enum SESSION_TYPE {
 do { \
     u8* source_address = session_get_id(session)->source_address; \
     u8* destination_address = session_get_id(session)->destination_address; \
-    LOG(loglevel, message" (source: %02x:%02x:%02x:%02x:%02x:%02x, destination: %02x:%02x:%02x:%02x:%02x:%02x)", \
+    enum SESSION_TYPE type = session_get_type(session); \
+    LOG(loglevel, message" (type: %d, source: %02x:%02x:%02x:%02x:%02x:%02x, destination: %02x:%02x:%02x:%02x:%02x:%02x)", \
         ## __VA_ARGS__ , \
+        type, \
         source_address[0], source_address[1], source_address[2], \
         source_address[3], source_address[4], source_address[5], \
         destination_address[0], destination_address[1], destination_address[2], \
@@ -229,6 +231,11 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
  */
 session_id* session_get_id(session_t* session);
 
+/**
+ * Returns the `SESSION_TYPE` of a given `session_t`.
+ */
+enum SESSION_TYPE session_get_type(session_t* session);
+
 /* ---------------------------------------------------- */
 
 /**
@@ -253,9 +260,8 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
  * @param metadata - Pointer to a `coded_packet_metadata_t` struct, holding metadata relevant to the given coded packet.
  * @param payload - Pointer to the received encoded payload.
  * @param length - The length of the payload.
- * @param forward_os - (Intermediate for simulation) Defines if the `os_callback` should be called immediately or skipped.
  * @return Returns 0 for success, -1 for failure.
  */
-int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os);
+int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
 
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_SESSION_H

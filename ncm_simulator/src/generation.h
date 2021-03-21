@@ -9,6 +9,8 @@
 #include "session.h"
 
 #define GENERATION_MAX_SEQUENCE_NUMBER UINT16_MAX
+#define GENERATION_RTX_MIN_TIMEOUT 5
+#define GENERATION_RTX_MAX_TIMEOUT 20
 
 /**
  * Defines a value space for any errors which may be returned from the public interface of generation.c

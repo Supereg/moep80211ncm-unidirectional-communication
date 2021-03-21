@@ -27,6 +27,20 @@ do { \
 static int generation_tx_callback(timeout_t timeout, u32 overrun, void* data);
 
 /**
+ * Struct containing all state information for sessions
+ * which do transmission (SOURCE and INTERMEDIATE).
+ */
+struct tx {
+    // TODO document
+    int src_count;
+    // TODO document
+    double redundancy;
+
+    // TODO document
+    timeout_t timeout;
+};
+
+/**
  * Struct holding all state information for a generation.
  */
 struct generation {
@@ -72,12 +86,11 @@ struct generation {
      */
     int remote_dimension;
 
-    // TODO document
-    int tx_packet_count;
-    // TODO document
-    double tx_redundancy;
-
-    timeout_t tx_timeout;
+    /**
+     * Pointer to `tx` struct, holding state for nodes doing transmission.
+     * This pointer is NULL for nodes not doing any transmissions.
+     */
+    struct tx* tx;
 };
 
 generation_t* generation_find(struct list_head* generation_list, u16 sequence_number) {
@@ -103,9 +116,11 @@ generation_t* generation_init(
     void* event_data) {
 
     struct generation* generation;
+    struct generation* previous;
+    struct tx* tx;
     int ret;
 
-    struct generation* previous;
+    tx = NULL;
     u16 sequence_number = 0;
 
     // As of time of writing (March 2021) rlnc_block_encode() fails to do encoding
@@ -144,13 +159,23 @@ generation_t* generation_init(
     generation->remote_dimension = 0;
 
     if (session_type == SOURCE || session_type == INTERMEDIATE) {
-        ret = timeout_create(CLOCK_MONOTONIC, &generation->tx_timeout, generation_tx_callback, generation);
+        tx = calloc(1, sizeof(struct tx));
+        if (tx == NULL) {
+            free(generation);
+            DIE("generation_init() Failed to calloc() tx state: %s [gen_seq=%d]", strerror(errno), sequence_number);
+        }
+
+        ret = timeout_create(CLOCK_MONOTONIC, &tx->timeout, generation_tx_callback, generation);
         if (ret != 0) {
             generation_free(generation);
             DIE_GENERATION(generation, "generation_init() Failed to timeout_create() for tx timer: %s", strerror(errno));
         }
-        // TODO timeout set
+
+        tx->src_count = 0;
+        tx->redundancy = 0.0;
     }
+
+    generation->tx = tx;
 
     list_add_tail(&generation->list, generation_list);
 
@@ -158,11 +183,15 @@ generation_t* generation_init(
 }
 
 void generation_free(generation_t* generation) {
+    generation->next_pivot = 0; // TODO document the reason. (rtx_callback)
+    generation->remote_dimension = 0;
+
     rlnc_block_free(generation->rlnc_block);
 
-    // depending on the session type, certain timeouts might not be present
-    if (generation->tx_timeout != NULL) {
-        timeout_delete(generation->tx_timeout);
+    if (generation->tx != NULL) { // not present on DESTINATION nodes
+        timeout_delete(generation->tx->timeout);
+
+        free(generation->tx);
     }
 
     free(generation);
@@ -178,11 +207,155 @@ void generation_list_free(struct list_head *generation_list) {
 }
 
 
-// TODO document
 static void generation_trigger_event(generation_t* generation, enum GENERATION_EVENT event, void* result) {
+    if (result != NULL) {
+        // calling function expects! a result
+        assert(generation->event_handler != NULL);
+    }
+
     if (generation->event_handler != NULL) {
         generation->event_handler(generation, event, generation->event_data, result);
     }
+}
+
+static double tx_estimation(const generation_t* generation) {
+    assert(generation->tx != NULL);
+    return (double) generation->tx->src_count + generation->tx->redundancy;
+}
+
+/**
+ * Function is called to count the creation(SOURCE)/received(INTERMEDIATE) of a source frame.
+ */
+static void tx_dec(generation_t* generation) {
+    struct tx* tx;
+    assert(generation->tx != NULL);
+    tx = generation->tx;
+
+    if (tx_estimation(generation) >= 0) {
+        tx->src_count = 0;
+        tx->redundancy = 0.0;
+    }
+
+    double session_redundancy = 0;
+    generation_trigger_event(generation, GENERATION_EVENT_SESSION_REDUNDANCY, &session_redundancy);
+
+    assert(session_redundancy >= 1);
+
+    if (generation->session_type == SOURCE) {
+        tx->src_count -= 1;
+        // we subtract 1 as it is counted via src_count
+        tx->redundancy -= session_redundancy - 1.0;
+    } else if (generation->session_type == INTERMEDIATE) {
+        tx->redundancy -= session_redundancy;
+    }
+}
+
+/**
+ * Function is called to count a transmission of a coded frame.
+ */
+static void tx_inc(generation_t* generation) {
+    struct tx* tx;
+    assert(generation->tx != NULL);
+    tx = generation->tx;
+
+    if (tx->src_count < 0) {
+        tx->src_count += 1;
+    } else {
+        // redundant transmission
+        tx->redundancy += 1;
+    }
+}
+
+static int tx_timeout_val(const generation_t* generation) {
+    double time;
+
+    if (tx_estimation(generation) <= -1) { // TODO why not zero? (0;-1)???
+        time = 0;
+    } else {
+        time = GENERATION_RTX_MIN_TIMEOUT;
+        // TODO time += generation_index(NULL, generation);
+        time += tx_estimation(generation) + 1.0; // TODO the 1.0 offset is probably as it might be in the range of (-1; 0)?
+
+        time = min(time, (double) GENERATION_RTX_MAX_TIMEOUT);
+    }
+
+    //t += qdelay_get() / 2; TODO was commented in the old code
+
+    return (int) time;
+}
+
+static void generation_timeout_tx_schedule(generation_t* generation) {
+    assert(generation->tx != NULL);
+    // TODO remove
+    LOG(LOG_INFO, "scheduling with %dms", tx_timeout_val(generation));
+
+    int ret;
+    ret = timeout_settime(generation->tx->timeout, TIMEOUT_FLAG_SHORTEN,
+                          timeout_msec(tx_timeout_val(generation), 0));
+
+    if (ret != 0) {
+        DIE_GENERATION(generation, "generation_timeout_tx_schedule() failed timeout_settime(): %s", strerror(errno));
+    }
+}
+
+static void generation_timeout_tx_reset(generation_t* generation) {
+    int ret;
+
+    if (generation->tx == NULL) {
+        return;
+    }
+
+    ret = timeout_clear(generation->tx->timeout);
+
+    if (ret != 0) {
+        DIE_GENERATION(generation, "generation_timeout_tx_reset() failed timeout_clear(): %s", strerror(errno));
+    }
+}
+
+bool generation_empty(const generation_t* generation) {
+    return generation->next_pivot == 0;
+}
+
+int generation_space_remaining(const generation_t* generation) {
+    int size;
+    size = generation->generation_size - generation->next_pivot;
+    assert(size >= 0 && size <= generation->generation_size && "generation space is out of bounds");
+    return size;
+}
+
+static bool generation_is_complete(const generation_t* generation) {
+    // "complete" in the sense of full coding matrix + fully decoded
+    switch (generation->session_type) {
+        case SOURCE:
+        case DESTINATION:
+            return generation->remote_dimension >= generation->generation_size // fully acknowledged/received
+                   && generation_space_remaining(generation) == 0; // fully sent/decoded
+        case INTERMEDIATE:
+            // TODO explicitly support intermediate nodes
+            DIE_GENERATION(generation, "Intermediate nodes are currently unsupported!");
+    }
+
+    DIE_GENERATION(generation, "Reached unsupported session type %d!", generation->session_type);
+}
+
+static bool generation_remote_decoded(const generation_t* generation) {
+    return generation->remote_dimension >= generation->next_pivot;
+}
+
+void generation_update_remote_dimension(generation_t* generation, int dimension) {
+    // we only update the dimension if its bigger to protect against stale ACK frames.
+    if (dimension > generation->remote_dimension) {
+        generation->remote_dimension = dimension;
+    }
+
+    if (generation_remote_decoded(generation)) {
+        generation_timeout_tx_reset(generation);
+    }
+}
+
+void generation_assume_complete(generation_t* generation) {
+    generation_update_remote_dimension(generation, generation->generation_size);
+    generation->next_pivot = generation->generation_size;
 }
 
 void generation_reset(generation_t* generation, u16 new_sequence_number) {
@@ -199,95 +372,9 @@ void generation_reset(generation_t* generation, u16 new_sequence_number) {
 
     generation->next_pivot = 0;
     generation->remote_dimension = 0;
+
+    generation_timeout_tx_reset(generation);
 }
-
-
-int generation_space_remaining(const generation_t* generation) {
-    int size;
-    size = generation->generation_size - generation->next_pivot;
-    assert(size >= 0 && size <= generation->generation_size && "generation space is out of bounds");
-    return size;
-}
-
-void generation_update_remote_dimension(generation_t* generation, int dimension) {
-    // we only update the dimension if its bigger to protect against stale ACK frames.
-    if (dimension > generation->remote_dimension) {
-        generation->remote_dimension = dimension;
-    }
-}
-
-void generation_assume_complete(generation_t* generation) {
-    generation_update_remote_dimension(generation, generation->generation_size);
-    generation->next_pivot = generation->generation_size;
-}
-
-static bool generation_is_complete(const generation_t* generation) {
-    switch (generation->session_type) {
-        case SOURCE:
-        case DESTINATION:
-            return generation->remote_dimension >= generation->generation_size // fully acknowledged/received
-            && generation_space_remaining(generation) == 0; // fully sent/decoded
-        case INTERMEDIATE:
-            // TODO incorporate a ACK scheme in order to support forwarding nodes
-            DIE_GENERATION(generation, "Intermediate nodes are currently unsupported!");
-    }
-
-    DIE_GENERATION(generation, "Reached unsupported session type %d!", generation->session_type);
-}
-
-// TODO what about naming for all functions below
-static double transmission_estimation(const generation_t* generation) {
-    // TODO is this a estimation?
-    assert(generation->session_type == SOURCE || generation->session_type == INTERMEDIATE);
-    return (double) generation->tx_packet_count + generation->tx_redundancy;
-}
-
-// TODO inc/dec naming vs. descriptive naming
-static void tx_dec(generation_t* generation) {
-    if (transmission_estimation(generation) >= 0) {
-        generation->tx_packet_count = 0;
-        generation->tx_redundancy = 0.0;
-    }
-
-    if (generation->session_type == INTERMEDIATE) {
-        // TODO rtx_inc is not called for forwarders (this tx_src has no meaning)
-        // TODO test->tx_red -= session_redundancy;
-    } else {
-        generation->tx_packet_count -= 1;
-        // TODO test->tx_red -= session_redundancy - 1.0; // TODO only subtract 1.0 if its greater than 1
-    }
-}
-
-static void tx_inc(generation_t* generation) {
-    assert(generation->session_type == SOURCE || generation->session_type == INTERMEDIATE);
-
-    if (generation->tx_packet_count < 0) {
-        generation->tx_packet_count += 1;
-        // TODO stat data counter ++
-    } else {
-        generation->tx_redundancy += 1;
-        // TODO stat data counter redundant transmissions
-    }
-}
-
-static struct itimerspec* tx_timeout_val(const generation_t* generation) {
-    double time;
-
-    if (transmission_estimation(generation) <= -1) { // TODO why not zero? (0;-1)???
-        time = 0;
-    } else {
-        time = 5; // TODO #define GENERATION_RTX_MIN_TIMEOUT 5
-        // time += generation_index()
-        time += transmission_estimation(generation) + 1.0; // TODO the 1.0 offset is probably as it might be in the range of (0; -1)?
-
-        time = min(time, (double) 20); // TODO GENERATION_RTX_MAX_TIMEOUT
-    }
-
-    //t += qdelay_get() / 2; TODO was commented in the old code
-
-    return timeout_msec((int) time, 0);
-}
-
 
 /**
  * Traverses through the whole list of generations to clean out completed generations
@@ -329,6 +416,10 @@ int generation_list_advance(struct list_head* generation_list) {
 static NCM_GENERATION_STATUS generation_encoder_add(generation_t* generation, u8* buffer, size_t length) {
     int ret;
 
+    if (generation->session_type != SOURCE) {
+        return GENERATION_GENERIC_ERROR;
+    }
+
     if (length > generation->max_pdu_size) {
         return GENERATION_PACKET_TOO_LARGE;
     }
@@ -344,8 +435,9 @@ static NCM_GENERATION_STATUS generation_encoder_add(generation_t* generation, u8
     }
 
     generation->next_pivot++;
+    tx_dec(generation);
 
-    generation_trigger_event(generation, GENERATION_EVENT_ENCODED, NULL);
+    generation_timeout_tx_schedule(generation);
     
     return 0;
 }
@@ -374,7 +466,7 @@ NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, si
     int flags = 0;
     ssize_t length;
 
-    if (generation->next_pivot == 0) {
+    if (generation_empty(generation)) {
         return GENERATION_EMPTY;
     }
 
@@ -429,7 +521,7 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
 
     assert(!list_empty(generation_list) && "generation list cannot be empty");
 
-    while (true) {
+    for (;;) {
         generation = list_first_entry(generation_list, struct generation, list);
 
         status = generation_next_decoded(generation, max_length, buffer, length_decoded);
@@ -446,7 +538,7 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
     }
 }
 
-static NCM_GENERATION_STATUS generation_decoder_add_decoded(generation_t* generation, u8* buffer, size_t length) {
+static NCM_GENERATION_STATUS generation_decoder_add(generation_t* generation, u8* buffer, size_t length) {
     int ret;
 
     if (length > generation->max_pdu_size) {
@@ -467,7 +559,12 @@ static NCM_GENERATION_STATUS generation_decoder_add_decoded(generation_t* genera
     // we know for a fact, the remote dimension must equal to the rank of what we have received
     generation_update_remote_dimension(generation, rlnc_block_rank_decode(generation->rlnc_block));
 
-    generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
+    if (generation->session_type == INTERMEDIATE) {
+        tx_dec(generation);
+        // TODO trigger a tx if not fully decoded?
+    } else if (generation->session_type == DESTINATION) {
+        generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
+    }
 
     return GENERATION_STATUS_SUCCESS;
 }
@@ -488,6 +585,7 @@ void align_generation_window(struct list_head* generation_list, coded_packet_met
         );
 
     if (window_id_delta != 0) {
+        // TODO can this be explicitly covered by some test case?
         // we need to somehow determine if the remote window_id is smaller or bigger than the local one!
 
         if (window_id_delta >= metadata->window_size) {
@@ -542,7 +640,15 @@ static NCM_GENERATION_STATUS generation_list_receive_coded(struct list_head* gen
 
     generation = generation_find(generation_list, metadata->generation_sequence);
     if (generation == NULL) {
+        // TODO can this be explicitly covered by some test case?
         LOG(LOG_WARNING, "Received a seemingly late packet for the generation seq=%d", metadata->generation_sequence);
+        // TODO this might not entirely work with Intermediate nodes (they shouldn't blindly ACK)?
+
+        // to trigger event, we need a reference to some generation.
+        // as ACKs are sent for all active generations, it's actually irrelevant
+        // which generation the pointer references.
+        assert(!list_empty(generation_list));
+        generation = list_first_entry(generation_list, struct generation, list);
 
         // as align_generation_window() is assumed to have been called,
         // this is probably the case of a LOST ack for the (last) fully decoded generation.
@@ -551,7 +657,7 @@ static NCM_GENERATION_STATUS generation_list_receive_coded(struct list_head* gen
         return GENERATION_UNAVAILABLE;
     }
 
-    status = generation_decoder_add_decoded(generation, buffer, length);
+    status = generation_decoder_add(generation, buffer, length);
 
     return status;
 }
@@ -577,7 +683,6 @@ static NCM_GENERATION_STATUS generation_list_receive_ack(struct list_head* gener
         }
 
         generation_update_remote_dimension(generation, ack.receiver_dim);
-        // TODO reset the rtx timers
     }
 
     (void) generation_list_advance(generation_list);
@@ -646,5 +751,38 @@ int generation_index(struct list_head* generations_list, generation_t* generatio
 
 
 static int generation_tx_callback(timeout_t timeout, u32 overrun, void* data) {
-    return -1; // TODO implement
+    (void) timeout;
+    (void) overrun;
+    generation_t* generation;
+    int transmissions;
+
+    generation = data;
+
+    if (generation_remote_decoded(generation)) {
+        return 0;
+    }
+    if (generation_is_complete(generation)) {
+        return 0;
+    }
+
+    if (overrun) {
+        LOG_GENERATION(LOG_WARNING, generation, "generation_tx_callback() detected %d skipped transmissions (overruns)", overrun);
+    }
+
+    transmissions = (int) overrun + 1;
+
+    do {
+        generation_trigger_event(generation, GENERATION_EVENT_ENCODED, NULL);
+        tx_inc(generation);
+
+        if (transmissions > 0) {
+            transmissions--;
+        }
+    } while (tx_timeout_val(generation) < GENERATION_RTX_MIN_TIMEOUT || transmissions > 0);
+
+    LOG(LOG_INFO, "Rescheduling with pivot=%d remote=%d seq=%d gen=%d", generation->next_pivot, generation->remote_dimension, generation->sequence_number, generation->generation_size);
+    // as a timeout, we rely on the session destroy timer
+    generation_timeout_tx_schedule(generation);
+
+    return 0;
 }

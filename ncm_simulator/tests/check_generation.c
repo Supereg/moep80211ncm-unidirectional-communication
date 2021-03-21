@@ -34,10 +34,38 @@ void test_generation_setup() {
  */
 void test_generation_teardown() {
     close_check_utils();
-    check_utils_lists_free();
 
     generation_list_free(&check_generation_list);
     generation_list_free(&check_generation_list0);
+}
+
+static void check_gen_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result) {
+    (void) generation;
+    (void) data;
+
+    switch (event) {
+        case GENERATION_EVENT_SESSION_REDUNDANCY:
+            *(double*) result = 1.0; // TODO make this configurable/testable?
+            break;
+        case GENERATION_EVENT_ACK:
+        case GENERATION_EVENT_ENCODED:
+        case GENERATION_EVENT_RESET:
+            break;
+        default:
+            DIE_GENERATION(generation, "Received unknown generation event: %d", event);
+    }
+}
+
+static generation_t* check_generation_init(struct list_head* generation_list, enum SESSION_TYPE type, int generation_size) {
+    return generation_init(
+        generation_list,
+        type,
+        CHECK_GF_TYPE,
+        generation_size,
+        CHECK_MAX_PDU,
+        CHECK_ALIGNMENT,
+        check_gen_event_handler,
+        NULL);
 }
 
 /* ----------------------------------- Basic Setup Tests ----------------------------------- */
@@ -47,7 +75,7 @@ START_TEST(test_generation_creation) {
     generation_t* loop_generation;
 
     // basic generation init checks
-    generation0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+    generation0 = check_generation_init(&check_generation_list, SOURCE, CHECK_GENERATION_SIZE);
     ck_assert_int_eq(generation0->sequence_number, 0);
     ck_assert_int_eq(generation0->session_type, SOURCE);
     ck_assert_int_eq(generation0->generation_size, CHECK_GENERATION_SIZE);
@@ -57,7 +85,7 @@ START_TEST(test_generation_creation) {
     ck_assert_int_eq(generation_space_remaining(generation0), CHECK_GENERATION_SIZE);
 
     for (int i = 1; i < 10; i++) { // do some loops to check that sequence number is incremented properly
-        loop_generation = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+        loop_generation = check_generation_init(&check_generation_list, SOURCE, CHECK_GENERATION_SIZE);
         ck_assert_int_eq(loop_generation->sequence_number, i);
         ck_assert_int_eq(generation_index(&check_generation_list, loop_generation), i);
     }
@@ -77,7 +105,7 @@ START_TEST(test_generation_sequence_number) {
 
     // create 4 generations in our generation list
     for (int i = 0; i < window_size; i++) {
-        entry = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, CHECK_GENERATION_SIZE, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+        entry = check_generation_init(&check_generation_list, SOURCE, CHECK_GENERATION_SIZE);
         entry->sequence_number = start_seq + i; // move seq num to the end of the UINT16 window
     }
 
@@ -116,6 +144,8 @@ START_TEST(test_generation_sequence_number) {
 }
 END_TEST
 
+// TODO test for the timeout stuff
+
 /* ----------------------------------- CODING related tests ----------------------------------- */
 
 START_TEST(test_generation_source) {
@@ -126,7 +156,7 @@ START_TEST(test_generation_source) {
     char* example0 = "Hello World!";
     char* example1 = "What Up???";
 
-    generation = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+    generation = check_generation_init(&check_generation_list, SOURCE, 1);
 
     status = generation_encoder_add(generation, (u8*) buffer, CHECK_MAX_PDU + 1);
     ck_assert_int_eq(status, GENERATION_PACKET_TOO_LARGE);
@@ -134,7 +164,9 @@ START_TEST(test_generation_source) {
     status = generation_encoder_add(generation, (u8*) example0, strlen(example0));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
     ck_assert_int_eq(generation->next_pivot, 1);
+    LOG(LOG_INFO, "kjadsjkdaskj");
     ck_assert_int_eq(generation_space_remaining(generation), 0);
+    LOG(LOG_INFO, "kjadsjkdaskj");
 
     returned_length = rlnc_block_get(generation->rlnc_block, 0, buffer, CHECK_MAX_PDU);
     ck_assert_int_eq(returned_length, strlen(example0));
@@ -142,6 +174,9 @@ START_TEST(test_generation_source) {
 
     status = generation_encoder_add(generation, (u8*) example1, strlen(example1));
     ck_assert_int_eq(status, GENERATION_FULLY_TRAVERSED);
+    LOG(LOG_INFO, "jknadwjkw");
+
+    generation_assume_complete(generation); // cancel tx timeout
 }
 END_TEST
 
@@ -154,8 +189,8 @@ START_TEST(test_generation_destination) {
     u8 buffer[CHECK_MAX_PDU] = {0};
     char* example0 = "Hello World!";
 
-    source = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
-    destination = generation_init(&check_generation_list0, DESTINATION, CHECK_GF_TYPE, 1, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+    source = check_generation_init(&check_generation_list, SOURCE, 1);
+    destination = check_generation_init(&check_generation_list0, DESTINATION, 1);
 
     status = generation_next_encoded_frame(source, CHECK_MAX_PDU, &generation_sequence, buffer, &length);
     ck_assert_int_eq(status, GENERATION_EMPTY);
@@ -169,7 +204,9 @@ START_TEST(test_generation_destination) {
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
     ck_assert_int_eq(generation_sequence, 0);
 
-    status = generation_decoder_add_decoded(destination, buffer, length);
+    generation_assume_complete(source); // cancel tx timeout
+
+    status = generation_decoder_add(destination, buffer, length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
 
     memset(buffer, 0, CHECK_MAX_PDU);
@@ -197,9 +234,9 @@ START_TEST(test_generation_advance_source) {
     char* example1 = "Hello World2!";
     char* example2 = "Hello World3!";
 
-    source_gen0 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+    source_gen0 = check_generation_init(&check_generation_list, SOURCE, 2);
     ck_assert_int_eq(source_gen0->sequence_number, 0);
-    source_gen1 = generation_init(&check_generation_list, SOURCE, CHECK_GF_TYPE, 2, CHECK_MAX_PDU, CHECK_ALIGNMENT, NULL, NULL);
+    source_gen1 = check_generation_init(&check_generation_list, SOURCE, 2);
     ck_assert_int_eq(source_gen1->sequence_number, 1);
 
     status = generation_list_encoder_add(&check_generation_list, (u8*) example0, strlen(example0));
@@ -237,6 +274,9 @@ START_TEST(test_generation_advance_source) {
     ck_assert_int_ge(length, 0);
 
     ck_assert_str_eq(example2, (char*) buffer);
+
+    generation_assume_complete(source_gen0); // cancel tx timeout
+    generation_assume_complete(source_gen1); // cancel tx timeout
 }
 END_TEST
 

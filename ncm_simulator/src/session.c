@@ -15,6 +15,7 @@
 
 void session_free(session_t* session); // forward declaration used in session_callback_destroy()
 void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
+static void session_activity(session_t* session); // forward declaration used in generation_init()
 
 static void session_generation_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result);
 static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data);
@@ -146,21 +147,9 @@ session_t* session_find(session_subsystem_context_t* context, const u8* ether_so
     return NULL;
 }
 
-static void session_activity(session_t* session) { // TODO other timeout set functions are located somewhere else!
-    int ret;
-
-    assert(session->timeouts.destroy != NULL && "session destroy timeout was never initialized!");
-
-    ret = timeout_settime(session->timeouts.destroy, 0, timeout_msec(SESSION_TIMEOUT, 0));
-    if (ret != 0) {
-        DIE_SESSION(session, "session_activity() failed to timeout_settime() for destroy timeout: %s", strerror(errno));
-    }
-}
-
 session_t* session_register(session_subsystem_context_t* context, const u8* ether_source_host, const u8 *ether_destination_host) {
     enum SESSION_TYPE session_type;
     struct session* session;
-    generation_t* generation;
     int ret;
 
     session_type = session_type_derived(context, ether_source_host, ether_destination_host);
@@ -223,6 +212,10 @@ session_id* session_get_id(session_t* session) {
     return &session->session_id;
 }
 
+enum SESSION_TYPE session_get_type(session_t* session) {
+    return session->type;
+}
+
 void session_free(session_t* session) {
     list_del(&session->list);
 
@@ -254,6 +247,16 @@ void session_list_free(session_subsystem_context_t* context) {
     }
 }
 
+static void session_activity(session_t* session) {
+    int ret;
+
+    assert(session->timeouts.destroy != NULL && "session destroy timeout was never initialized!");
+
+    ret = timeout_settime(session->timeouts.destroy, 0, timeout_msec(SESSION_TIMEOUT, 0));
+    if (ret != 0) {
+        DIE_SESSION(session, "session_activity() failed to timeout_settime() for destroy timeout: %s", strerror(errno));
+    }
+}
 
 static void session_timeout_ack_schedule(session_t* session) {
     int ret;
@@ -324,8 +327,6 @@ static void session_check_for_decoded_frames(session_t* session) {
     u8* payload;
     size_t payload_length;
 
-    // TODO sending back to OS is only valid for session type of DESTINATION.
-    //   forwarders have to encode the frames at this point (and send them out), so forwarders are currently unsupported!
     assert(session->type == DESTINATION && "forwards are currently unsupported");
 
     for (;;) {
@@ -353,8 +354,7 @@ static void session_check_for_decoded_frames(session_t* session) {
     }
 }
 
-// TODO replace forward_os (only for internal testing)
-int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os) {
+int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
     NCM_GENERATION_STATUS status;
 
     if (session->context->moepgf_type != metadata->gf) {
@@ -369,19 +369,23 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
         return -1;
     }
 
-    assert(metadata->ack && (session->type == SOURCE || session->type == INTERMEDIATE)
-        || !metadata->ack && (session->type == DESTINATION || session->type == INTERMEDIATE));
+    assert((metadata->ack && (session->type == SOURCE || session->type == INTERMEDIATE))
+        || (!metadata->ack && (session->type == DESTINATION || session->type == INTERMEDIATE)));
 
     session_activity(session);
 
     status = generation_list_receive_frame(&session->generations_list, metadata, payload, length);
     if (status != GENERATION_STATUS_SUCCESS) {
+        if (status == GENERATION_UNAVAILABLE && !metadata->ack) {
+            // stale coded packet, which is fine, we will retransmit a ACK
+            return 0;
+        }
         // we require in generation_list_receive_frame that any non-zero status logs an error
         // no need to do a generic "something went wrong" message here
         return -1;
     }
 
-    if (forward_os) {
+    if (session->type == DESTINATION) {
         session_check_for_decoded_frames(session);
     }
 
@@ -440,18 +444,17 @@ int session_transmit_ack_frame(session_t* session) {
  * based on the current link quality.
  * The returned value is in the interval of [1.0, infinity).
  */
+ // TODO below is already the draft for the session_redundancy function
+ //  has some external requirements, we somehow need to mock in the unit test
 /*
-* TODO how to handle the dependency on the neighbours stuff?
 double session_redundancy(session_t* session) {
    u8* hw_addr;
    double redundancy;
 
-   // TODO explicitly not support case 2
+   // we do not (need to) support the 3-node/relay case
 
    if (!(hw_addr = session_find_remote_address(s))) {
-   // TODO LOG_SESSION
-       LOG(LOG_WARNING, "uplink_quality(): unable to find remote "
-                        "address");
+       LOG_SESSION(LOG_WARNING, session, "session_redundancy(): unable to find remote address");
        return 0.0;
    }
 
@@ -471,6 +474,8 @@ static void session_generation_event_handler(generation_t* generation, enum GENE
 
     switch (event) {
         case GENERATION_EVENT_ACK:
+            // be aware, that the generation pointer might be some "random" generation
+            // e.g. for ACK retransmission of generations, where generation was already freed
             session_timeout_ack_schedule(session);
             break;
         case GENERATION_EVENT_ENCODED:
@@ -480,7 +485,7 @@ static void session_generation_event_handler(generation_t* generation, enum GENE
             // TODO equivalent to "session_commit" (do we need the stats system though?)
             break;
         case GENERATION_EVENT_SESSION_REDUNDANCY:
-            *(double*) result = 1.0; // TODO hook into the neighbours list!
+            *(double*) result = 1.0; // TODO implement above session_redundancy function (with the neighbour list dependency)
             break;
         default:
             DIE_SESSION(session, "Received unknown generation event: %d", event);
@@ -507,8 +512,10 @@ static int session_ack_callback(timeout_t timeout, u32 overrun, void* data) {
         LOG_SESSION(LOG_WARNING, session, "session_ack_callback() detected %d skipped executions (overruns)", overrun);
     }
 
+    // TODO magic constant, count of packets sent out but now received by ourselves.
+    //  external dependency, needs mocking in the unit test!
     /*
-    if (qdelay_packet_cnt() > 10) { // TODO magic constant, count of packets sent out but now received by ourselves.
+    if (qdelay_packet_cnt() > 10) {
 		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
 			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
 		return 0;

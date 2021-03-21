@@ -62,7 +62,6 @@ void test_session_setup() {
  */
 void test_session_teardown() {
     close_check_utils();
-    check_utils_lists_free();
 
     session_subsystem_close(src_context);
     session_subsystem_close(intermediate_context);
@@ -124,6 +123,7 @@ END_TEST
 /* ----------------------------------- CODING related tests ----------------------------------- */
 
 START_TEST(test_session_coding_simple_two_nodes) {
+    check_test_context_t* context;
     session_t* source;
     session_t* destination;
 
@@ -148,12 +148,15 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ck_assert_int_eq(destination->type, DESTINATION);
     ck_assert_mem_eq(&source->session_id, &destination->session_id, sizeof(session_id));
 
+    // defines involved sessions, and forwarding behavior for the rtx callback (check_rtx_frame_callback)
+    context = test_init(source, NULL, destination, 1.0, -1);
+
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example0, strlen(example0));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    forward_rtx_frames(destination, 1, true);
-    forward_ack_frames(source, 1);
+    await_os_frame();
 
+    // TODO shortcut to assert received packet
     received = peek_os_frame_entry(0);
     ck_assert_int_eq(received->length, strlen(example0));
     ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
@@ -162,31 +165,29 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example1, strlen(example1));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    // TODO tests that the ack reached the source (needs await peeking in the check_utils)
-
-    forward_rtx_frames(destination, 1, true);
-    forward_ack_frames(source, 1);
-
-    // adding the third frame, will test if generation_list_advance works properly
-    ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example2, strlen(example2));
-    ck_assert_int_eq(ret, EXIT_SUCCESS);
-
-    forward_rtx_frames(destination, 1, true);
-    forward_ack_frames(source, 1);
+    await_os_frame();
 
     received = peek_os_frame_entry(1);
     ck_assert_int_eq(received->length, strlen(example1));
     ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example1);
 
+    // adding the third frame, will test if generation_list_advance works properly
+    ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example2, strlen(example2));
+    ck_assert_int_eq(ret, EXIT_SUCCESS);
+
+    await_os_frame();
+
     received = peek_os_frame_entry(2);
     ck_assert_int_eq(received->length, strlen(example2));
     ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
     ck_assert_str_eq((char*) received->payload, example2);
+
+    test_free(context);
 }
 END_TEST
 
-// TODO packet loss tests
+// TODO packet loss tests + randomized packets tests (+multiple session_encoder_add per await_os_frame())
 
 /* -------------------------------------------------------------------------------------------- */
 
