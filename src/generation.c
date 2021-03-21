@@ -756,7 +756,6 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 	s = generation_get_session(g);
 	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQUENCE_NUMBER);
 
-	// e.g. lseq=1; seq=2 => delta=32767
 	if (delta > 128)//FIXME TODO magic constant
 		delta = 0;
 
@@ -774,7 +773,7 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 		if (len > 0) {
 			g = list_first_entry(gl, struct generation, list);
 			timeout_settime(g->task.ack, TIMEOUT_FLAG_INACTIVE,
-				timeout_usec(GENERATION_ACK_TIMEOUT * 1000,
+				timeout_usec(GENERATION_ACK_MIN_TIMEOUT * 1000,
 						GENERATION_ACK_INTERVAL*1000));
 		}
 		return NULL;
@@ -801,7 +800,7 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 				timeout_settime(g->task.ack,
 					TIMEOUT_FLAG_INACTIVE,
 					timeout_usec(
-                        GENERATION_ACK_TIMEOUT * 1000,
+					GENERATION_ACK_MIN_TIMEOUT * 1000,
 					GENERATION_ACK_INTERVAL*1000));
 			else
 				timeout_settime(g->task.rtx,
@@ -811,7 +810,7 @@ generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
 				timeout_settime(g->task.ack,
 					TIMEOUT_FLAG_INACTIVE,
 					timeout_usec(
-                        GENERATION_ACK_TIMEOUT * 1000,
+                    GENERATION_ACK_MIN_TIMEOUT * 1000,
 					GENERATION_ACK_INTERVAL*1000));
 		}
 	}
