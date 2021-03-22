@@ -819,21 +819,17 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		tap_tx(frame);
 		break;
 
-	// is coded packet, try to decode
 	case NCM_CODED:
 		coded = (struct ncm_hdr_coded *)
 			moep_frame_moep_hdr_ext(frame, NCM_HDR_CODED);
 
-		// create new session if none is found
 		if (!(s = session_find(coded->sid)))
 			s = session_register(&cfg.session, NULL, coded->sid);
 
-		// decode
 		session_decoder_add(s, frame);
 		break;
 
-	case NCM_BEACON:
-		// beacons used for link quality estimation (does not concern us)
+    case NCM_BEACON:
 		bcnp = (void *)moep_frame_get_payload(frame, &len);
 
 		while (len/sizeof(*bcnp)) {

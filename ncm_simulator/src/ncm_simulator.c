@@ -26,8 +26,6 @@ struct arguments arguments;
 session_t* sender_session;
 session_t* receiver_session;
 
-static bool forward_from_source = false;
-
 /* --------------------------------- ARG Parsing --------------------------------- */
 
 const char* argp_program_version = "ncm_simulator 1.0";
@@ -61,13 +59,10 @@ static void argument_defaults(struct arguments* arguments) {
 static error_t parse_opt(int key, char* arg, struct argp_state* state) {
     struct arguments* arguments = state->input;
 
-    switch (key) {
-        case 'c':
-            // TODO set future timer values to zero
-            arguments->ci_mode = true;
-            break;
-        default:
-            return ARGP_ERR_UNKNOWN;
+    if (key == 'c') {
+        arguments->ci_mode = true;
+    } else {
+        return ARGP_ERR_UNKNOWN;
     }
 
     return 0;
@@ -87,11 +82,13 @@ int rtx_frame(session_subsystem_context_t* context, session_t* session, coded_pa
     (void) session;
 
     if (session == receiver_session) {
-        LOG(LOG_INFO, "Callback to RTX frame from receiver to sender was called!");
-        session_decoder_add(sender_session, metadata, payload, length, forward_from_source);    
-    } else {
+        LOG(LOG_INFO, "Callback to ACK frame from receiver to sender was called!");
+        session_decoder_add(sender_session, metadata, payload, length);
+    } else if (session == sender_session) {
         LOG(LOG_INFO, "Callback to RTX frame from sender to receiver was called!");
-        session_decoder_add(receiver_session, metadata, payload, length, forward_from_source);
+        session_decoder_add(receiver_session, metadata, payload, length);
+    } else {
+        DIE_SESSION(session, "Unknown session!");
     }
 
     return 0;
@@ -100,16 +97,12 @@ int rtx_frame(session_subsystem_context_t* context, session_t* session, coded_pa
 int os_frame(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length) {
     (void) context;
     (void) session;
+    char message[MAX_PDU_SIZE + 1] = {0};
 
     assert(STRING_ETHER_TYPE == ether_type);
+    memcpy(message, payload, length);
 
-    LOG(LOG_INFO, "Received a fully decoded frame (type=%#04x):", ether_type);
-    for (size_t i = 0; i < length; i++) {
-        char* c = ((char*) payload) + i;
-        printf("%c", *c);
-    }
-
-    printf("\n");
+    printf("Received a fully decoded frame (type=%#04x): %s", ether_type, message);
 
     return 0;
 }
@@ -130,7 +123,7 @@ int signal_handler(struct signalfd_siginfo* signal_info, void* data) { // copied
     if (signal_info->ssi_signo == SIGINT || signal_info->ssi_signo == SIGTERM) {
         errno = 0;
         return -1;
-    } else if (signal_info->ssi_signo == SIGRTMIN && signal_info->ssi_code == SI_TIMER) {
+    } else if (signal_info->ssi_signo == (uint32_t) SIGRTMIN && signal_info->ssi_code == SI_TIMER) {
         if (timeout_exec((void *)signal_info->ssi_ptr, signal_info->ssi_overrun) != 0) {
             LOG(LOG_ERR, "timeout_exec() failed");
         }
@@ -153,7 +146,9 @@ int stdin_callback_handler(int fd, u32 events, void* data) {
 
     // read includes the linebreak.
     ssize_t length = read(fileno(stdin), buffer, sizeof(buffer) - 1);
-    printf("read from stdin(%zd): %s", length, buffer);
+
+    int ret = session_encoder_add(sender_session, STRING_ETHER_TYPE, (u8*) buffer, length);
+    assert(ret == 0);
     return 0;
 }
 
@@ -163,7 +158,6 @@ void run_ci_example() {
     int ret = session_encoder_add(sender_session, STRING_ETHER_TYPE, (u8*) test_string, strlen(test_string));
     assert(ret == 0);
 
-    forward_from_source = true;
     ret = session_encoder_add(sender_session, STRING_ETHER_TYPE, (u8*) test_string2, strlen(test_string2));
     assert(ret == 0);
 }
@@ -180,7 +174,7 @@ int main(int argc, char *argv[]) {
     argument_defaults(&arguments);
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
-    printf("Starting the NCM Simulator...\n");
+    LOG(LOG_INFO, "Starting the NCM Simulator...\n");
 
     sender_context = init_context(sender_address);
     receiver_context = init_context(receiver_address);
@@ -189,7 +183,8 @@ int main(int argc, char *argv[]) {
     receiver_session = session_register(receiver_context, sender_address, receiver_address);
 
     if (arguments.ci_mode) {
-        run_ci_example();
+        LOG(LOG_ERR, "CI mode is disabled for now!");
+        // TODO run_ci_example(); (deactivated for now, as it would need to be adjusted due to timeout support)
     } else {
         // creates the stdin callback using epoll event EPOLLIN (called whenever a new line is available from stdin)
         callback = moep_callback_create(fileno(stdin), stdin_callback_handler, NULL, EPOLLIN);

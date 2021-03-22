@@ -12,8 +12,18 @@
 #include <moep/modules/moep80211.h>
 #include <moepgf/moepgf.h>
 
+/**
+ * Timeout in milliseconds a session has to be idle before it gets destroyed.
+ */
+#define SESSION_TIMEOUT 30000
+#define SESSION_ACK_TIMEOUT 1
+
 struct session;
-/// Opaque type for a `session` struct, representing all state of a session.
+/**
+ * Opaque type for a `session` struct, representing all state of a session.
+ * Seemingly inconsistent with the rest of the project, we don't use pointer typedefs:
+ * https://stackoverflow.com/questions/3781932/is-typedefing-a-pointer-type-considered-bad-practice
+ */
 typedef struct session session_t;
 
 struct session_subsystem_context;
@@ -48,13 +58,14 @@ typedef struct coded_packet_metadata {
     // The Session ID
     session_id sid;
     // The sequence number of the generation a given encoded packet stems from or is addressed to.
+    // For ack frames this value is zero and has no meaning
     u16 generation_sequence;
-    // The smalles sequence number of the current sequence number window
-    u16 smallest_generation_sequence;
+    // The smallest sequence number of the current sequence number window
+    u16 window_id;
     // Galois field type
-    u8 gf;
-    // ACKnowlegment flag
-    u8 ack;
+    enum MOEPGF_TYPE gf;
+    // Acknowledgment flag
+    bool ack;
     // generation windows size
     u8 window_size;
 } coded_packet_metadata_t;
@@ -74,7 +85,7 @@ typedef struct ack_payload {
  * @param metadata - Pointer to a `coded_packet_metadata_t` struct, holding metadata relevant to the given coded packet.
  * @param payload - The pointer to the payload.
  * @param length - The length of the payload.
- * @returns 0 success, -1 error TODO currently not checked! (does it even make sense to have a return type?)
+ * @returns 0 success, -1 error
  */
 typedef int (*encoded_payload_callback)(struct session_subsystem_context* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
 
@@ -87,7 +98,7 @@ typedef int (*encoded_payload_callback)(struct session_subsystem_context* contex
  * @param ether_type - The ether type in network byte order.
  * @param payload - The pointer to the payload.
  * @param length - The length of the payload.
- * @returns 0 success, -1 error TODO currently not checked! (does it even make sense to have a return type?)
+ * @returns 0 success, -1 error
  */
 typedef int (*decoded_payload_callback)(struct session_subsystem_context* context, session_t* session, u16 ether_type, u8* payload, size_t length);
 
@@ -145,7 +156,21 @@ enum SESSION_TYPE {
 do { \
     u8* source_address = session_get_id(session)->source_address; \
     u8* destination_address = session_get_id(session)->destination_address; \
-    LOG(loglevel, message" (source: %02x:%02x:%02x:%02x:%02x:%02x, destination: %02x:%02x:%02x:%02x:%02x:%02x)", \
+    enum SESSION_TYPE type = session_get_type(session); \
+    LOG(loglevel, message" (type: %d, source: %02x:%02x:%02x:%02x:%02x:%02x, destination: %02x:%02x:%02x:%02x:%02x:%02x)", \
+        ## __VA_ARGS__ , \
+        type, \
+        source_address[0], source_address[1], source_address[2], \
+        source_address[3], source_address[4], source_address[5], \
+        destination_address[0], destination_address[1], destination_address[2], \
+        destination_address[3], destination_address[4], destination_address[5]); \
+} while (0)
+
+#define DIE_SESSION(session, message, ...) \
+do { \
+    u8* source_address = session_get_id(session)->source_address; \
+    u8* destination_address = session_get_id(session)->destination_address; \
+    DIE(message" (source: %02x:%02x:%02x:%02x:%02x:%02x, destination: %02x:%02x:%02x:%02x:%02x:%02x)", \
         ## __VA_ARGS__ , \
         source_address[0], source_address[1], source_address[2], \
         source_address[3], source_address[4], source_address[5], \
@@ -206,6 +231,11 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
  */
 session_id* session_get_id(session_t* session);
 
+/**
+ * Returns the `SESSION_TYPE` of a given `session_t`.
+ */
+enum SESSION_TYPE session_get_type(session_t* session);
+
 /* ---------------------------------------------------- */
 
 /**
@@ -230,25 +260,8 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
  * @param metadata - Pointer to a `coded_packet_metadata_t` struct, holding metadata relevant to the given coded packet.
  * @param payload - Pointer to the received encoded payload.
  * @param length - The length of the payload.
- * @param forward_os - (Intermediate for simulation) Defines if the `os_callback` should be called immediately or skipped.
  * @return Returns 0 for success, -1 for failure.
  */
-int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length, bool forward_os);
-
-/**
- * Sends next encoded frame. Prepares and sets all metadata.
- * 
- * @param session - The `session_t` for which the frame is to be sent
- * @returns Returns 0 for success, -1 for failure.
- */
-int session_transmit_next_encoded_frame(session_t* session);
-
-/**
- * Sends an acknowlegment frame. Preparse and sets all metadata.
- * 
- * @param session - The `session_t` for which the frame is to be sent
- * @returns Returns 0.
- */
-int session_transmit_ack_frame(session_t* session);
+int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
 
 #endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_SESSION_H

@@ -34,8 +34,8 @@ enum frametypes {
 struct ncm_hdr_unidirectional_coded {
     struct moep_hdr_ext hdr;
     u8 session_id[2 * IEEE80211_ALEN];
-    u16 sequence_number;
-    u16 smallest_generation_sequence;
+    u16 sequence_number; // TODO document, no meaning for ack frames
+    u16 window_id;
     u8 gf:2;
     u8 ack:1;
     u8 window_size:5;
@@ -86,7 +86,7 @@ int ncm_session_decoder_add(session_t* session, moep_frame_t frame) {
 int set_coded_header(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet_metadata_t* metadata) {
     memcpy(coded_header->session_id, metadata->sid, sizeof(struct session_id));
     coded_header->sequence_number = metadata->generation_sequence;
-    coded_header->smallest_generation_sequence = metadata->smallest_generation_sequence;
+    coded_header->window_id = metadata->window_id;
     coded_header->gf = metadata->gf;
     coded_header->ack = metadata->ack;
     coded_header->window_size = metadata->window_size;
