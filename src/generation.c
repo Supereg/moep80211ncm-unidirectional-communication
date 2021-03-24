@@ -459,7 +459,12 @@ NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_l
         return GENERATION_STATUS_SUCCESS;
     }
 
-    return GENERATION_UNAVAILABLE;
+    // no more space available. Discard first generation and shift to make space
+    generation = list_first_entry(generation_list, generation_t, list);
+    generation_assume_complete(generation);
+    status = generation_list_advance(generation_list);
+
+    return status;
 }
 
 NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u16* generation_sequence, u8* buffer, size_t* length_encoded) {
