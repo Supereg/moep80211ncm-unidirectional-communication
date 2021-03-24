@@ -1,4 +1,5 @@
 
+ACLOCAL_AMFLAGS = -I ../m4
 AM_CFLAGS = -O2 -Wall
 
 AM_CPPFLAGS = -I$(top_srcdir)/include $(LIBMOEPCOMMON_CFLAGS)
