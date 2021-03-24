@@ -1,31 +1,31 @@
 
 @CODE_COVERAGE_RULES@
 
-TESTS = check_simulator
-check_PROGRAMS = check_simulator
+TESTS = check_session
+check_PROGRAMS = check_session
 
-check_simulator_SOURCES  = check_main.c
-check_simulator_SOURCES += check_utils.c
-check_simulator_SOURCES += check_utils.h
-check_simulator_SOURCES += check_generation.c
-check_simulator_SOURCES += check_session.c
-check_simulator_SOURCES += check_simulator.h
+check_session_SOURCES  = check_main.c
+check_session_SOURCES += check_utils.c
+check_session_SOURCES += check_utils.h
+check_session_SOURCES += check_generation.c
+check_session_SOURCES += check_session.c
+check_session_SOURCES += check_suites.h
 
-check_simulator_SOURCES += \$(top_builddir)/src/generation.h
-check_simulator_SOURCES += \$(top_builddir)/src/session.h
+check_session_CFLAGS  = @CHECK_CFLAGS@
+check_session_CFLAGS += $(CODE_COVERAGE_CFLAGS)
 
-check_simulator_CFLAGS = @CHECK_CFLAGS@
+check_session_CPPFLAGS  = $(LIBMOEP_CFLAGS)
+check_session_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)
+check_session_CPPFLAGS += $(LIBMOEPGF_CFLAGS)
+check_session_CPPFLAGS += $(LIBMOEPRLNC_CFLAGS)
+check_session_CPPFLAGS += $(CODE_COVERAGE_CPPFLAGS)
 
-check_simulator_CPPFLAGS = $(LIBMOEP_CFLAGS)
-check_simulator_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)
-check_simulator_CPPFLAGS += $(LIBMOEPGF_CFLAGS)
-check_simulator_CPPFLAGS += $(LIBMOEPRLNC_CFLAGS)
-
-check_simulator_LDADD  = $(top_builddir)/src/libsimulator.la
-check_simulator_LDADD += @CHECK_LIBS@
-check_simulator_LDADD += $(LIBMOEP_LIBS)
-check_simulator_LDADD += $(LIBMOEPGF_LIBS)
-check_simulator_LDADD += $(LIBMOEPRLNC_LIBS)
+check_session_LDADD  = $(top_builddir)/src/libsession.la
+check_session_LDADD += @CHECK_LIBS@
+check_session_LDADD += $(LIBMOEP_LIBS)
+check_session_LDADD += $(LIBMOEPGF_LIBS)
+check_session_LDADD += $(LIBMOEPRLNC_LIBS)
+check_session_LDADD += $(CODE_COVERAGE_LIBS)
 
 noinst_HEADERS  = ../../libmoepcommon/include/moepcommon/benchmark.h
 noinst_HEADERS += ../../libmoepcommon/include/moepcommon/list.h

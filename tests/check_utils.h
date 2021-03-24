@@ -2,12 +2,12 @@
 // Created by Andreas Bauer on 19.03.21.
 //
 
-#ifndef MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_CHECK_UTILS_H
-#define MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_CHECK_UTILS_H
+#ifndef CHECK_UTILS_H
+#define CHECK_UTILS_H
 
 #include <check.h>
 
-#include "check_simulator.h"
+#include "check_suites.h"
 
 #include "../src/session.h"
 
@@ -63,4 +63,4 @@ void await_os_frame();
 os_frame_entry_t * pop_os_frame_entry(); // Don't forget to free(...) after pop
 os_frame_entry_t * peek_os_frame_entry(int index);
 
-#endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_CHECK_UTILS_H
+#endif //CHECK_UTILS_H

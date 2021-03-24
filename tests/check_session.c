@@ -8,7 +8,7 @@
 // Created by Andreas Bauer on 22.02.21.
 //
 
-#include "check_simulator.h"
+#include "check_suites.h"
 #include "check_utils.h"
 
 #include <stdio.h>

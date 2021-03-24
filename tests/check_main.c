@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <check.h>
 
-#include "check_simulator.h"
+#include "check_suites.h"
 
 int main()
 {

@@ -15,6 +15,7 @@ AC_SUBST(AR_FLAGS, [cr]) # Fixes ar warning during make
 LT_INIT([disable-shared])
 
 PKG_CHECK_MODULES([LIBMOEP], [libmoep >= 2.0])
+PKG_CHECK_MODULES([CHECK], [check >= 0.10.0]) # TODO can we remove that dependency to just compile ncm module?
 
 AC_SEARCH_LIBS([exp], [m])
 AC_SEARCH_LIBS([timer_create], [rt])
@@ -40,8 +41,13 @@ AC_SUBST(LIBJSM_CFLAGS)
 LIBJSM_LIBS="\$(top_builddir)/libjsm/libjsm.la"
 AC_SUBST(LIBJSM_LIBS)
 
-AC_CONFIG_FILES([Makefile])
+AX_CODE_COVERAGE
+AS_IF([test x$enable_code_coverage != xno], [
+	AC_SEARCH_LIBS(gcov_open, gcov, [LDFLAGS="$LDFLAGS $CODE_COVERAGE_LDFLAGS"])
+])
 
-AC_CONFIG_SUBDIRS([libmoepgf libmoeprlnc libjsm ncm_simulator])
+AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])
+
+AC_CONFIG_SUBDIRS([libmoepgf libmoeprlnc libjsm])
 
 AC_OUTPUT

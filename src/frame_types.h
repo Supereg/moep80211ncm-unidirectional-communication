@@ -4,8 +4,8 @@
 
 // TODO this file is to be merged with the frametypes.h in the ncm module!
 
-#ifndef MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_FRAME_TYPES_H
-#define MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_FRAME_TYPES_H
+#ifndef FRAME_TYPES_H
+#define FRAME_TYPES_H
 
 #include "global.h"
 #include "session.h"
@@ -166,4 +166,4 @@ int tx_decoded_frame(struct session_subsystem_context* context, session_t* sessi
     return 0;
 }
 
-#endif //MOEP80211NCM_UNIDIRECTIONAL_COMMUNICATION_FRAME_TYPES_H
+#endif //FRAME_TYPES_H
