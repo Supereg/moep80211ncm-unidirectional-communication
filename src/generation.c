@@ -91,6 +91,11 @@ struct generation {
      * This pointer is NULL for nodes not doing any transmissions.
      */
     struct tx* tx;
+
+    /**
+     * struct for statistics
+     */
+    struct generation_packet_counter ctr;
 };
 
 generation_t* generation_find(struct list_head* generation_list, u16 sequence_number) {
@@ -260,9 +265,13 @@ static void tx_inc(generation_t* generation) {
 
     if (tx->src_count < 0) {
         tx->src_count += 1;
+        // count transmission on sender side
+        generation->ctr.data_ack += 1;
     } else {
         // redundant transmission
         tx->redundancy += 1;
+        // count redundant transmission on sender side
+        generation->ctr.redundant += 1;
     }
 }
 
@@ -356,6 +365,10 @@ void generation_update_remote_dimension(generation_t* generation, int dimension)
 void generation_assume_complete(generation_t* generation) {
     generation_update_remote_dimension(generation, generation->generation_size);
     generation->next_pivot = generation->generation_size;
+}
+
+struct generation_packet_counter generation_commit(generation_t* generation) {
+    return generation->ctr;
 }
 
 void generation_reset(generation_t* generation, u16 new_sequence_number) {
@@ -564,6 +577,8 @@ static NCM_GENERATION_STATUS generation_decoder_add(generation_t* generation, u8
         // TODO trigger a tx if not fully decoded?
     } else if (generation->session_type == DESTINATION) {
         generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
+        // count sent ack on receiver side
+        generation->ctr.data_ack += 1;
     }
 
     return GENERATION_STATUS_SUCCESS;

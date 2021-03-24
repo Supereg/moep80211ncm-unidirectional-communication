@@ -44,6 +44,11 @@ typedef enum NCM_GENERATION_STATUS_ENUM {
     GENERATION_UNAVAILABLE = -40706,
 } NCM_GENERATION_STATUS;
 
+struct generation_packet_counter {
+       int data_ack;
+       int redundant;
+};
+
 struct generation;
 /// Opaque type for a `generation` struct
 typedef struct generation generation_t;
@@ -158,5 +163,13 @@ int generation_window_size(struct list_head* generations_list);
 u16 generation_window_id(struct list_head* generations_list);
 
 int generation_index(struct list_head* generations_list, generation_t* generation);
+
+/**
+ * Returns the statistics of the generation before it is being reset.
+ * 
+ * @param generation - the generation being reset/whose stats we want
+ * @returns a struct generation_packet_counter holding the stats
+ */
+struct generation_packet_counter generation_commit(generation_t* generation);
 
 #endif //GENERATION_H
