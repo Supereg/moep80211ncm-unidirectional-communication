@@ -13101,8 +13101,8 @@ A''M_DISTCHECK_CONFIGURE_FLAGS += --disable-code-coverage
 
 if test x$enable_code_coverage != xno; then :
 
-    # autoconf default cflags are "-g -O2" which overrides our -O0 for code coverage testing
-    # This is a workaround to override the default -02
+	# autoconf default cflags are "-g -O2" which overrides our -O0 for code coverage testing
+	# This is a workaround to override the default -02
 	CFLAGS="$CFLAGS -O0"
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing gcov_open" >&5
 $as_echo_n "checking for library containing gcov_open... " >&6; }
