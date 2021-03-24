@@ -1,965 +1,788 @@
-#include <errno.h>
-#include <assert.h>
-#include <math.h>
-
-#include <moep/system.h>
-#include <moep/types.h>
-#include <moep/ieee80211_addr.h>
-#include <moep/ieee80211_frametypes.h>
-#include <moep/radiotap.h>
-#include <moep/modules/ieee8023.h>
-#include <moep/modules/moep80211.h>
-
-#include <moepcommon/util.h>
-#include <moepcommon/list.h>
-#include <moepcommon/timeout.h>
+//
+// Created by Andreas Bauer on 22.02.21.
+//
 
 #include "generation.h"
+
+#include <assert.h>
+
+#include <moepcommon/list.h>
+#include <moepcommon/util.h>
+#include <moepcommon/timeout.h>
+#include <moeprlnc/rlnc.h>
+
 #include "session.h"
-#include "ncm.h"
-#include "qdelay.h"
 
+#define LOG_GENERATION(loglevel, generation, message, ...) \
+do { \
+    LOG(loglevel, message " [gen_seq=%d]", ## __VA_ARGS__, generation->sequence_number); \
+} while (0)
 
-static int cb_rtx(timeout_t t, u32 overrun, void *data);
-static int cb_ack(timeout_t t, u32 overrun, void *data);
-extern int rad_tx_event;
-extern int sfd;
+#define DIE_GENERATION(generation, message, ...) \
+do { \
+    DIE(message " [gen_seq=%d]", ## __VA_ARGS__, generation->sequence_number); \
+} while (0)
 
-struct pvpos {
-	int cur;
-	int min;
-	int max;
+// Forward declaration for our timer callbacks. See `timeout_cb_t` type.
+static int generation_tx_callback(timeout_t timeout, u32 overrun, void* data);
+
+/**
+ * Struct containing all state information for sessions
+ * which do transmission (SOURCE and INTERMEDIATE).
+ */
+struct tx {
+    // TODO document
+    int src_count;
+    // TODO document
+    double redundancy;
+
+    // TODO document
+    timeout_t timeout;
 };
 
-struct estimators {
-	int master;
-	int slave;
-	int *local;
-	int *remote;
-};
-
+/**
+ * Struct holding all state information for a generation.
+ */
 struct generation {
-	struct list_head	list;
+    struct list_head list;
+    /**
+     * Sequence number uniquely identifying the given generation (in the context of a specific session).
+     * The sequence number is forced into the range of uint16.
+     * It starts at 0 and is monotonously increased for every "new" generation
+     * (either by creating a new generation, or by freeing an old generation and allocating a new sequence number).
+     */
+    u16 sequence_number;
 
-	rlnc_block_t 		rb;
+    /**
+     * The session type of the associated session (See `SESSION_TYPE`):
+     */
+    const enum SESSION_TYPE session_type;
 
-	enum MOEPGF_TYPE	gftype;
-	enum GENERATION_TYPE	gentype;
-	uint16_t		seq;
-	size_t			packet_size;
-	int			packet_count;
+    rlnc_block_t rlnc_block;
 
-	struct generation_state	state;
+    const generation_event_handler event_handler;
+    void* event_data;
 
-	struct pvpos		encoder;
-	struct pvpos		decoder;
+    /**
+     * The maximum frame size possible to store in our coding matrix.
+     */
+    const size_t max_pdu_size;
+    /**
+     * Represents the size of our generation aka. the maximum dimension of our coding matrix
+     * aka. the max amount of frames to be stored in this generation.
+     */
+    const int generation_size;
 
-	int			ack_block;
-	int			missing;
+    /**
+     * The next_pivot defines the next free pivot index of the coding matrix.
+     * For receiving nodes (DESTINATION, INTERMEDIATE) this will define the next
+     * pivot used to store the next coded packet.
+     * For sending nodes (SOURCE) this will define the next pivot used to store the next source packet.
+     */
+    int next_pivot;
+    /**
+     * This counter reflects the remote dimension of our session,
+     * at least for what we have received an acknowledgment for.
+     */
+    int remote_dimension;
 
-	session_t		session;
-	struct list_head	*gl;
-
-	int			tx_src;
-	double			tx_red;
-
-	struct {
-		timeout_t rtx;
-		timeout_t ack;
-	} task;
+    /**
+     * Pointer to `tx` struct, holding state for nodes doing transmission.
+     * This pointer is NULL for nodes not doing any transmissions.
+     */
+    struct tx* tx;
 };
 
-static double
-rtx(const generation_t g)
-{
-	return ((double)g->tx_src + g->tx_red);
+generation_t* generation_find(struct list_head* generation_list, u16 sequence_number) {
+    generation_t* generation;
+
+    list_for_each_entry(generation, generation_list, list) {
+        if (generation->sequence_number == sequence_number) {
+            return generation;
+        }
+    }
+
+    return NULL;
 }
 
-static void
-rtx_dec(generation_t g)
-{
-	if (rtx(g) >= 0.0) {
-		g->tx_src = 0;
-		g->tx_red = 0.0;
-	}
-	if (g->gentype == FORWARD) {
-		g->tx_red -= session_redundancy(g->session);
-	} else {
-		g->tx_src -= 1;
-		g->tx_red -= session_redundancy(g->session) - 1.0;
-	}
+generation_t* generation_init(
+    struct list_head* generation_list,
+    enum SESSION_TYPE session_type,
+    enum MOEPGF_TYPE moepgf_type,
+    int generation_size,
+    size_t max_pdu_size,
+    size_t alignment,
+    generation_event_handler event_handler,
+    void* event_data) {
+
+    struct generation* generation;
+    struct generation* previous;
+    struct tx* tx;
+    int ret;
+
+    tx = NULL;
+    u16 sequence_number = 0;
+
+    // As of time of writing (March 2021) rlnc_block_encode() fails to do encoding
+    // [the resulting buffer will not be written to, length is properly set] for generations with only one source frame and RLNC_STRUCTURED NOT set.
+    // The issue seemingly doesn't occur with bigger GF types. Thus we currently disallow those GF types!
+    assert(moepgf_type != MOEPGF2 && moepgf_type != MOEPGF4 && "Unable to init with MOEPGF2/MOEPGF4 as there are seemingly issues with libmoepgf");
+
+    // generate next sequence number, required to start at zero and be continuous
+    if (!list_empty(generation_list)) {
+        previous = list_last_entry(generation_list, struct generation, list);
+        sequence_number = previous->sequence_number + 1;
+        assert(sequence_number <= GENERATION_MAX_SEQUENCE_NUMBER - 1);
+    }
+
+    generation = calloc(1, sizeof(struct generation));
+    if (generation == NULL) {
+        DIE("generation_init() Failed to calloc() generation: %s [gen_seq=%d]", strerror(errno), sequence_number);
+    }
+
+    generation->sequence_number = sequence_number;
+
+    *(enum SESSION_TYPE*) &generation->session_type = session_type;
+    *(size_t*) &generation->max_pdu_size = max_pdu_size;
+    *(int*) &generation->generation_size = generation_size;
+
+    generation->rlnc_block = rlnc_block_init(generation_size, max_pdu_size, alignment, moepgf_type);
+    if (generation->rlnc_block == NULL) {
+        free(generation);
+        DIE_GENERATION(generation, "generation_init() Failed to rlnc_block_init(): %s", strerror(errno));
+    }
+
+    *(generation_event_handler*) &generation->event_handler = event_handler;
+    generation->event_data = event_data;
+
+    generation->next_pivot = 0;
+    generation->remote_dimension = 0;
+
+    if (session_type == SOURCE || session_type == INTERMEDIATE) {
+        tx = calloc(1, sizeof(struct tx));
+        if (tx == NULL) {
+            free(generation);
+            DIE("generation_init() Failed to calloc() tx state: %s [gen_seq=%d]", strerror(errno), sequence_number);
+        }
+
+        ret = timeout_create(CLOCK_MONOTONIC, &tx->timeout, generation_tx_callback, generation);
+        if (ret != 0) {
+            generation_free(generation);
+            DIE_GENERATION(generation, "generation_init() Failed to timeout_create() for tx timer: %s", strerror(errno));
+        }
+
+        tx->src_count = 0;
+        tx->redundancy = 0.0;
+    }
+
+    generation->tx = tx;
+
+    list_add_tail(&generation->list, generation_list);
+
+    return generation;
 }
 
-static void
-rtx_inc(generation_t g)
-{
-	if (g->tx_src < 0) {
-		g->tx_src += 1;
-		g->state.tx.data++;
-		return;
-	}
+void generation_free(generation_t* generation) {
+    generation->next_pivot = 0; // TODO document the reason. (rtx_callback)
+    generation->remote_dimension = 0;
 
-	g->tx_red += 1.0;
-	g->state.tx.redundant++;
-	return;
+    rlnc_block_free(generation->rlnc_block);
+
+    if (generation->tx != NULL) { // not present on DESTINATION nodes
+        timeout_delete(generation->tx->timeout);
+
+        free(generation->tx);
+    }
+
+    free(generation);
 }
 
-static void
-rtx_reset(generation_t g)
-{
-	g->tx_src = 0;
-	g->tx_red = 0.0;
+void generation_list_free(struct list_head *generation_list) {
+    struct generation *current, *tmp;
+
+    list_for_each_entry_safe(current, tmp, generation_list, list) {
+        list_del(&current->list);
+        generation_free(current);
+    }
 }
 
-static struct itimerspec *
-rtx_timeout(const generation_t g)
-{
-	double t;
 
-	if (rtx(g) > -1) {
-		t = (double)GENERATION_RTX_MIN_TIMEOUT;
-		t += generation_index(g)+rtx(g)+1.0;
-		t = min(t, (double)GENERATION_RTX_MAX_TIMEOUT);
-	}
-	else {
-		t = 0;
-	}
+static void generation_trigger_event(generation_t* generation, enum GENERATION_EVENT event, void* result) {
+    if (result != NULL) {
+        // calling function expects! a result
+        assert(generation->event_handler != NULL);
+    }
 
-	//t += qdelay_get() / 2;
-
-	return timeout_msec((int)t, 0);
+    if (generation->event_handler != NULL) {
+        generation->event_handler(generation, event, generation->event_data, result);
+    }
 }
 
-inline int
-generation_window_size(const struct list_head *gl)
-{
-	generation_t first = list_first_entry(gl, struct generation, list);
-	generation_t last = list_last_entry(gl, struct generation, list);
-	return delta(last->seq, first->seq, GENERATION_MAX_SEQUENCE_NUMBER) + 1;
+static double tx_estimation(const generation_t* generation) {
+    assert(generation->tx != NULL);
+    return (double) generation->tx->src_count + generation->tx->redundancy;
 }
 
 /**
- * Writes a `generation_feedback` for every generation in our generation list into the
- * given `ncm_hdr_coded` extension header.
- * @param g The generation we sent the coded packet out.
- * @param fb Pointer to the start of the array of `generation_feedback` in our `ncm_hdr_coded` header.
- * @param maxlen Length of the array * sizeof(generation_feedback). (=count in bytes in our header).
- * @return 0 on success, -1 on error.
+ * Function is called to count the creation(SOURCE)/received(INTERMEDIATE) of a source frame.
  */
-ssize_t
-generation_feedback(generation_t g, struct generation_feedback *fb,
-		size_t maxlen)
-{
-	int count;
-	generation_t cur;
+static void tx_dec(generation_t* generation) {
+    struct tx* tx;
+    assert(generation->tx != NULL);
+    tx = generation->tx;
 
-	count = generation_window_size(g->gl);
-	if (count*sizeof(*fb) > maxlen) { // TODO redundant check?
-		LOG(LOG_ERR, "buffer too small");
-		errno = ENOMEM;
-		return -1;
-	}
+    if (tx_estimation(generation) >= 0) {
+        tx->src_count = 0;
+        tx->redundancy = 0.0;
+    }
 
-	list_for_each_entry(cur, g->gl, list) {
-		fb->lock.ms	= cur->state.fms.lock;
-		fb->lock.sm	= cur->state.fsm.lock;
-		fb->ddim.ms	= cur->state.fms.ddim;
-		fb->sdim.ms	= cur->state.fms.sdim;
-		fb->ddim.sm	= cur->state.fsm.ddim;
-		fb->sdim.sm	= cur->state.fsm.sdim;
-		timeout_settime(cur->task.ack, 0, NULL);
-		fb++;
-	}
+    double session_redundancy = 0;
+    generation_trigger_event(generation, GENERATION_EVENT_SESSION_REDUNDANCY, &session_redundancy);
 
-	return 0;
+    assert(session_redundancy >= 1);
+
+    if (generation->session_type == SOURCE) {
+        tx->src_count -= 1;
+        // we subtract 1 as it is counted via src_count
+        tx->redundancy -= session_redundancy - 1.0;
+    } else if (generation->session_type == INTERMEDIATE) {
+        tx->redundancy -= session_redundancy;
+    }
 }
 
-static inline void
-generation_lock(generation_t g)
-{
-	g->state.local->lock = 1;
-	g->encoder.max = g->encoder.cur - 1;
+/**
+ * Function is called to count a transmission of a coded frame.
+ */
+static void tx_inc(generation_t* generation) {
+    struct tx* tx;
+    assert(generation->tx != NULL);
+    tx = generation->tx;
+
+    if (tx->src_count < 0) {
+        tx->src_count += 1;
+    } else {
+        // redundant transmission
+        tx->redundancy += 1;
+    }
 }
 
-static inline void
-generation_update_dimensions(generation_t g,
-			const struct generation_feedback *fb)
-{
-	g->state.fms.sdim = max((int)g->state.fms.sdim, (int)fb->sdim.ms);
-	g->state.fms.ddim = max((int)g->state.fms.ddim, (int)fb->ddim.ms);
-	g->state.fsm.sdim = max((int)g->state.fsm.sdim, (int)fb->sdim.sm);
-	g->state.fsm.ddim = max((int)g->state.fsm.ddim, (int)fb->ddim.sm);
+static int tx_timeout_val(const generation_t* generation) {
+    double time;
+
+    if (tx_estimation(generation) <= -1) { // TODO why not zero? (0;-1)???
+        time = 0;
+    } else {
+        time = GENERATION_RTX_MIN_TIMEOUT;
+        // TODO time += generation_index(NULL, generation);
+        time += tx_estimation(generation) + 1.0; // TODO the 1.0 offset is probably as it might be in the range of (-1; 0)?
+
+        time = min(time, (double) GENERATION_RTX_MAX_TIMEOUT);
+    }
+
+    //t += qdelay_get() / 2; TODO was commented in the old code
+
+    return (int) time;
 }
 
-// IMPORTANT: generation_update_dimension() has to be called beforehand!
-static inline void
-generation_update_locks(generation_t g, const struct generation_feedback *fb)
-{
-	g->state.fms.lock = max((int)g->state.fms.lock, (int)fb->lock.ms);
-	g->state.fsm.lock = max((int)g->state.fsm.lock, (int)fb->lock.sm);
+static void generation_timeout_tx_schedule(generation_t* generation) {
+    assert(generation->tx != NULL);
+    // TODO remove
+    LOG(LOG_INFO, "scheduling with %dms", tx_timeout_val(generation));
 
-	// Forwarders are done here
-	if (g->gentype == FORWARD)
-		return;
+    int ret;
+    ret = timeout_settime(generation->tx->timeout, TIMEOUT_FLAG_SHORTEN,
+                          timeout_msec(tx_timeout_val(generation), 0));
 
-	// If the remote flow was locked, we just have locked the local flow. To
-	// detect when all decoded packets have been returned, we have to update
-	// the decoder.max pivot.
-	if (g->state.remote->lock) {
-		generation_lock(g);
-		g->decoder.max = g->decoder.min + g->state.remote->sdim - 1;
-	}
+    if (ret != 0) {
+        DIE_GENERATION(generation, "generation_timeout_tx_schedule() failed timeout_settime(): %s", strerror(errno));
+    }
 }
 
-int
-generation_assume_complete(generation_t g)
-{
-	if (g->gentype == FORWARD) {
-		g->state.fms.lock = 1;
-		g->state.fms.ddim = g->state.fms.sdim;
+static void generation_timeout_tx_reset(generation_t* generation) {
+    int ret;
 
-		g->state.fsm.lock = 1;
-		g->state.fsm.ddim = g->state.fsm.sdim;
+    if (generation->tx == NULL) {
+        return;
+    }
 
-		return 0;
-	}
+    ret = timeout_clear(generation->tx->timeout);
 
-	g->state.remote->lock = 1;
-	g->state.local->ddim = g->state.local->sdim;
-	g->decoder.max = g->decoder.min + g->state.remote->sdim - 1;
-
-	if (generation_remote_flow_decoded(g)) {
-		g->state.local->lock = 1;
-		g->encoder.max = g->encoder.cur - 1;
-	}
-	else {
-		LOG(LOG_ERR, "remote->sdim=%d, remote->ddim=%d",
-				g->state.remote->sdim, g->state.remote->ddim);
-		DIE("something is terribly wrong");
-	}
-
-	if (!generation_local_flow_decoded(g))
-		LOG(LOG_INFO, "generation seq=%d local flow NOT decoded",
-				g->seq);
-	if (!generation_remote_flow_decoded(g))
-		LOG(LOG_INFO, "generation seq=%d remote flow NOT decoded",
-				g->seq);
-
-	if (!generation_remote_flow_decoded(g))
-		LOG(LOG_INFO, "generation seq=%d remote flow NOT decoded",
-				g->seq);
-
-	if (!generation_is_complete(g))
-		LOG(LOG_INFO, "generation seq=%d INCOMPLETE", g->seq);
-
-	if (!generation_is_returned(g))
-		return -1;
-
-	return 0;
+    if (ret != 0) {
+        DIE_GENERATION(generation, "generation_timeout_tx_reset() failed timeout_clear(): %s", strerror(errno));
+    }
 }
 
-int
-generation_local_flow_locked(const generation_t g)
-{
-	if (g->gentype == FORWARD)
-		return EGENFAIL;
-
-	return g->state.local->lock;
+bool generation_empty(const generation_t* generation) {
+    return generation->next_pivot == 0;
 }
 
-int
-generation_remote_flow_locked(const generation_t g)
-{
-	if (g->gentype == FORWARD)
-		return EGENFAIL;
-
-	return g->state.remote->lock;
+int generation_space_remaining(const generation_t* generation) {
+    int size;
+    size = generation->generation_size - generation->next_pivot;
+    assert(size >= 0 && size <= generation->generation_size && "generation space is out of bounds");
+    return size;
 }
 
-int
-generation_is_locked(const generation_t g)
-{
-	return (g->state.fms.lock && g->state.fsm.lock);
+static bool generation_is_complete(const generation_t* generation) {
+    // "complete" in the sense of full coding matrix + fully decoded
+    switch (generation->session_type) {
+        case SOURCE:
+        case DESTINATION:
+            return generation->remote_dimension >= generation->generation_size // fully acknowledged/received
+                   && generation_space_remaining(generation) == 0; // fully sent/decoded
+        case INTERMEDIATE:
+            // TODO explicitly support intermediate nodes
+            DIE_GENERATION(generation, "Intermediate nodes are currently unsupported!");
+    }
+
+    DIE_GENERATION(generation, "Reached unsupported session type %d!", generation->session_type);
 }
 
-int
-generation_local_flow_decoded(const generation_t g)
-{
-	if (g->gentype == FORWARD)
-		return EGENFAIL;
-
-	if (g->state.local->sdim == g->state.local->ddim)
-		return 1;
-
-	return 0;
+static bool generation_remote_decoded(const generation_t* generation) {
+    return generation->remote_dimension >= generation->next_pivot;
 }
 
-int
-generation_remote_flow_decoded(const generation_t g)
-{
-	if (g->gentype == FORWARD)
-		return EGENFAIL;
+void generation_update_remote_dimension(generation_t* generation, int dimension) {
+    // we only update the dimension if its bigger to protect against stale ACK frames.
+    if (dimension > generation->remote_dimension) {
+        generation->remote_dimension = dimension;
+    }
 
-	if (g->state.remote->sdim == g->state.remote->ddim)
-		return 1;
-
-	return 0;
+    if (generation_remote_decoded(generation)) {
+        generation_timeout_tx_reset(generation);
+    }
 }
 
-static int
-generation_fms_decoded(const generation_t g)
-{
-	if (g->state.fms.sdim == g->state.fms.ddim)
-		return 1;
-
-	return 0;
+void generation_assume_complete(generation_t* generation) {
+    generation_update_remote_dimension(generation, generation->generation_size);
+    generation->next_pivot = generation->generation_size;
 }
 
-static int
-generation_fsm_decoded(const generation_t g)
-{
-	if (g->state.fsm.sdim == g->state.fsm.ddim)
-		return 1;
+void generation_reset(generation_t* generation, u16 new_sequence_number) {
+    int ret;
 
-	return 0;
+    generation_trigger_event(generation, GENERATION_EVENT_RESET, NULL);
+
+    ret = rlnc_block_reset(generation->rlnc_block);
+    if (ret != 0) {
+        DIE_GENERATION(generation, "Failed to reset rlnc block, when trying to reset generation!");
+    }
+
+    generation->sequence_number = new_sequence_number;
+
+    generation->next_pivot = 0;
+    generation->remote_dimension = 0;
+
+    generation_timeout_tx_reset(generation);
 }
 
-int
-generation_is_decoded(const generation_t g)
-{
-	return (generation_fms_decoded(g) && generation_fsm_decoded(g));
+/**
+ * Traverses through the whole list of generations to clean out completed generations
+ * (generations which were sent out and successfully received at the other end).
+ * The generation list is ordered by generation state, generations which are currently worked on
+ * are at the beginning (as we add new source frames iteratively), thus unused generations are at the end.
+ * Once a generation (from the beginning of the list) is reset, the generation list is shifted accordingly,
+ * such that the freed generations (after getting the next free sequence number set) are at the end of the list.
+ *
+ * @param generation_list - The list of `generation`s to traverse.
+ * @return Returns the amount of generations which got reset as they were complete (and thus got moved to the beginning of the list).
+ */
+int generation_list_advance(struct list_head* generation_list) {
+    generation_t* next;
+    generation_t* last;
+    u16 next_sequence_number;
+    int advance_count = 0;
+
+    for (;;) {
+        next = list_first_entry(generation_list, struct generation, list);
+        last = list_last_entry(generation_list, struct generation, list);
+
+        if (!generation_is_complete(next)) {
+            break;
+        }
+
+        next_sequence_number = (u16) last->sequence_number + 1;
+        // reset the given generation with initializing it with a new sequence number
+        generation_reset(next, next_sequence_number);
+        // moves the reset generation to the end of the list
+        list_rotate_left(generation_list);
+
+        advance_count++;
+    }
+
+    return advance_count;
 }
 
-int
-generation_is_complete(const generation_t g)
-{
-	return (generation_is_locked(g) && generation_is_decoded(g));
+static NCM_GENERATION_STATUS generation_encoder_add(generation_t* generation, u8* buffer, size_t length) {
+    int ret;
+
+    if (generation->session_type != SOURCE) {
+        return GENERATION_GENERIC_ERROR;
+    }
+
+    if (length > generation->max_pdu_size) {
+        return GENERATION_PACKET_TOO_LARGE;
+    }
+
+    if (generation_space_remaining(generation) == 0) {
+        return GENERATION_FULLY_TRAVERSED; // matrix is full, can't add any further source frames
+    }
+
+    ret = rlnc_block_add(generation->rlnc_block, generation->next_pivot, buffer, length);
+    if (ret != 0) {
+        LOG_GENERATION(LOG_ERR, generation, "rlnc_block_decode() failed!");
+        return GENERATION_GENERIC_ERROR;
+    }
+
+    generation->next_pivot++;
+    tx_dec(generation);
+
+    generation_timeout_tx_schedule(generation);
+    
+    return 0;
 }
 
-int
-generation_is_returned(const generation_t g)
-{
-	if (g->gentype == FORWARD)
-		return 1;
+NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_list, u8* buffer, size_t length) {
+    generation_t* generation;
+    NCM_GENERATION_STATUS status;
 
-	if (g->state.remote->sdim == g->decoder.cur - g->decoder.min)
-		return 1;
+    list_for_each_entry(generation, generation_list, list) {
+        if (generation_space_remaining(generation) == 0) {
+            continue;
+        }
 
-	return 0;
+        status = generation_encoder_add(generation, buffer, length);
+        if (status != 0) {
+            DIE_GENERATION(generation, "generation_list_encoder_add() failed to add buffer(%zu): %d", length, status);
+        }
+
+        return GENERATION_STATUS_SUCCESS;
+    }
+
+    return GENERATION_UNAVAILABLE;
 }
 
-static void
-init_pvpos(generation_t g)
-{
-	switch (g->gentype) {
-	case MASTER:
-		g->encoder.min	= 0;
-		g->encoder.max	= g->packet_count / 2 - 1;
-		g->encoder.cur	= g->encoder.min;
-		g->decoder.min	= g->packet_count / 2;
-		g->decoder.max	= g->packet_count - 1;
-		g->decoder.cur	= g->decoder.min;
-		g->state.local	= &g->state.fms;
-		g->state.remote	= &g->state.fsm;
-		break;
-	case SLAVE:
-		g->encoder.min 	= g->packet_count / 2;
-		g->encoder.max 	= g->packet_count - 1;
-		g->encoder.cur	= g->encoder.min;
-		g->decoder.min 	= 0;
-		g->decoder.max 	= g->packet_count / 2 - 1;
-		g->decoder.cur	= g->decoder.min;
-		g->state.local	= &g->state.fsm;
-		g->state.remote	= &g->state.fms;
-		break;
-	case FORWARD:
-		g->encoder.min 	= 0;
-		g->encoder.max 	= g->packet_count - 1;
-		g->encoder.cur	= 0;
-		g->decoder.min 	= 0;
-		g->decoder.max 	= g->packet_count - 1;
-		g->decoder.cur	= 0;
-		break;
-	}
+NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u16* generation_sequence, u8* buffer, size_t* length_encoded) {
+    int flags = 0;
+    ssize_t length;
+
+    if (generation_empty(generation)) {
+        return GENERATION_EMPTY;
+    }
+
+    if (generation->session_type == SOURCE) {
+        // if its the source node (aka not the forwarder) we want
+        // to send out the frame in a structured way.
+        flags |= RLNC_STRUCTURED;
+    }
+
+    length = rlnc_block_encode(generation->rlnc_block, buffer, max_length, flags);
+
+    if (length < 0) {
+        LOG_GENERATION(LOG_ERR, generation, "generation_next_encoded_frame() failed, error message above!");
+        return GENERATION_GENERIC_ERROR;
+    }
+
+    *generation_sequence = generation->sequence_number;
+    *length_encoded = length;
+
+    return GENERATION_STATUS_SUCCESS;
 }
 
-generation_t
-generation_init(session_t s, struct list_head *gl,
-		enum GENERATION_TYPE gentype, enum MOEPGF_TYPE gftype,
-		int packet_count, size_t packet_size, int sequence_number)
-{
-	struct generation *g;
+static NCM_GENERATION_STATUS generation_next_decoded(generation_t* generation, size_t max_length, u8* buffer, size_t* length_decoded) {
+    ssize_t length;
 
-	if (!(g = malloc(sizeof(*g))))
-		DIE("malloc() failed: %s", strerror(errno));
+    assert(generation->session_type != SOURCE && "Cannot decode from SOURCE session!");
 
-	memset(g, 0, sizeof(*g));
+    if (generation_space_remaining(generation) == 0) {
+        return GENERATION_FULLY_TRAVERSED; // generation is already drained
+    }
 
-	g->rb = rlnc_block_init(packet_count, packet_size, MEMORY_ALIGNMENT,
-								gftype);
-	if (!g->rb)
-		DIE("rlnc_block_init() failed");
+    length = rlnc_block_get(generation->rlnc_block, generation->next_pivot, buffer, max_length);
+    if (length < 0) { // the destination buffer was probably too small!
+        LOG_GENERATION(LOG_ERR, generation, "generation_next_decoded() failed as rlnc_block_get() failed, see above!");
+        return GENERATION_GENERIC_ERROR;
+    }
 
-	g->seq = sequence_number;
-	g->packet_count = packet_count;
-	g->packet_size  = packet_size;
-	g->gftype	= gftype;
-	g->gentype	= gentype;
-	g->session	= s;
-	g->gl		= gl;
+    if (length == 0) { // no bytes read, the given pivot can't be decoded
+        return GENERATION_NOT_YET_DECODABLE;
+    }
 
-	list_add_tail(&g->list, g->gl);
+    generation->next_pivot++;
+    *length_decoded = length;
 
-	init_pvpos(g);
-
-	if (0 > timeout_create(CLOCK_MONOTONIC, &g->task.rtx, cb_rtx,g))
-		DIE("timeout_create() failed: %s", strerror(errno));
-	if (0 > timeout_create(CLOCK_MONOTONIC, &g->task.ack, cb_ack,g))
-		DIE("timeout_create() failed: %s", strerror(errno));
-
-	return g;
+    return GENERATION_STATUS_SUCCESS;
 }
 
-static void
-generation_destroy(generation_t g)
-{
-	timeout_delete(g->task.rtx);
-	timeout_delete(g->task.ack);
-	rlnc_block_free(g->rb);
-	free(g);
+NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_list, size_t max_length, u8* buffer, size_t* length_decoded) {
+    generation_t* generation;
+    NCM_GENERATION_STATUS status;
+    int advanced_num;
+
+    assert(!list_empty(generation_list) && "generation list cannot be empty");
+
+    for (;;) {
+        generation = list_first_entry(generation_list, struct generation, list);
+
+        status = generation_next_decoded(generation, max_length, buffer, length_decoded);
+
+        if (status == GENERATION_FULLY_TRAVERSED) { // first entry in list is fully decoded
+            advanced_num = generation_list_advance(generation_list);
+            if (advanced_num > 0) {
+                // we just reset the full generation, check if there is still decoded data
+                continue;
+            }
+        }
+
+        return status;
+    }
 }
 
-void
-generation_list_destroy(struct list_head *gl)
-{
-	struct generation *tmp, *cur;
+static NCM_GENERATION_STATUS generation_decoder_add(generation_t* generation, u8* buffer, size_t length) {
+    int ret;
 
-	list_for_each_entry_safe(cur, tmp, gl, list) {
-		list_del(&cur->list);
-		generation_destroy(cur);
-	}
+    if (length > generation->max_pdu_size) {
+        return GENERATION_PACKET_TOO_LARGE;
+    }
+
+    /* No need for special checks, encoded packets can be added anytime:
+     * - Either the packet is linear independent => this guarantees the coding matrix rank is not full
+     * - or the packet is linear dependent => it is eliminated anyway
+     */
+
+    ret = rlnc_block_decode(generation->rlnc_block, buffer, length);
+    if (ret != 0) {
+        LOG_GENERATION(LOG_ERR, generation, "rlnc_block_decode() failed!");
+        return GENERATION_GENERIC_ERROR;
+    }
+
+    // we know for a fact, the remote dimension must equal to the rank of what we have received
+    generation_update_remote_dimension(generation, rlnc_block_rank_decode(generation->rlnc_block));
+
+    if (generation->session_type == INTERMEDIATE) {
+        tx_dec(generation);
+        // TODO trigger a tx if not fully decoded?
+    } else if (generation->session_type == DESTINATION) {
+        generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
+    }
+
+    return GENERATION_STATUS_SUCCESS;
 }
 
-int
-generation_reset(generation_t g, uint16_t seq)
-{
-	struct generation_flowstate *local, *remote;
+void align_generation_window(struct list_head* generation_list, coded_packet_metadata_t* metadata) {
+    u16 local_window_id;
+    u16 window_id_delta;
+    generation_t* entry;
 
-	// Sanity checks
-	if (g->tx_src > 0)
-		LOG(LOG_ERR, "ERROR: tx_src = %d", g->tx_src);
+    // see comments below for this requirement!
+    assert(generation_window_size(generation_list) >= 2); // TODO can we reengineer such that we don't need it that strict?
 
-	if (g->gentype != FORWARD) {
-		if (g->state.tx.data != g->state.local->sdim)
-			LOG(LOG_ERR, "ERROR: tx.data != sdim");
-	}
+    local_window_id = generation_window_id(generation_list);
 
-	if (rlnc_block_reset(g->rb))
-		return EGENFAIL;
+    window_id_delta = min(
+        delta(metadata->window_id, local_window_id, GENERATION_MAX_SEQUENCE_NUMBER),
+        delta(local_window_id, metadata->window_id, GENERATION_MAX_SEQUENCE_NUMBER)
+        );
 
-	session_commit_state(g->session, &g->state);
+    if (window_id_delta != 0) {
+        // TODO can this be explicitly covered by some test case?
+        // we need to somehow determine if the remote window_id is smaller or bigger than the local one!
 
-	g->seq = seq;
-	rtx_reset(g);
+        if (window_id_delta >= metadata->window_size) {
+            // we have non overlapping generation windows!
+            // as sequence numbers are uint16 and wrap around, we CAN't
+            // tell which window_id is bigger (which is required for our adjustment logic below!
+            // Solution would be to "magically" adjust the window such that are equal again.
+            // In production environment this strategy would need to protect against DOS attacks.
+            // This is all out of the scope of the project. Thus we just DIE.
+            // Reaching this point means something has gone FATALLY wrong, anyways!
+            DIE("FATAL generation_list_receive_frame() non overlapping generation windows!");
+        }
 
-	local = g->state.local;
-	remote = g->state.remote;
-	memset(&g->state, 0, sizeof(g->state));
-	g->state.local = local;
-	g->state.remote = remote;
+        // our window_id is smaller, if the remote window_id is contained
+        // in our current generation window!
+        // We checked non equality AND overlapping windows above!
+        // Does two assumptions are key for our logic to work!
+        if (NULL != generation_find(generation_list, metadata->window_id)) {
+            // the remote window is further ahead.
+            // If we are a SOURCE this means we probably lost some ACK packet.
+            // If we are a DESTINATION something has gone completely wrong,
+            // the SOURCE has moved on and won't send frames for "old" generations.
+            // In both cases we move our generation window to be equal with the remote.
+            //
+            // We IGNORE the case when local window is further ahead (probably stale packets).
+            // If we are a SOURCE, DESTINATION will reach this case here when we send out next coded packet.
+            // If we are DESTINATION, SOURCE will probably send a coded frame for a
+            // generation we already have cleared. We cover that in generation_list_receive_coded()
+            // triggering a ACK if we can't find the generation for a given coded packet.
 
-	init_pvpos(g);
+            // sanity checking that we don't have double overlapping windows
+            // (happens if you choose too big generation window)
+            assert(NULL == generation_find(generation_list, metadata->window_id + metadata->window_size));
 
-	timeout_settime(g->task.rtx, 0, NULL);
-	timeout_settime(g->task.ack, 0, NULL);
+            list_for_each_entry(entry, generation_list, list) {
+                if (entry->sequence_number == metadata->window_id) {
+                    break;
+                }
 
-	return 0;
+                generation_assume_complete(entry);
+            }
+
+            // now ensure that the list is ordered again!
+            (void) generation_list_advance(generation_list);
+        }
+    }
 }
 
-static int
-encoder_add(generation_t g, const uint8_t *src, size_t len)
-{
-	int ret;
+static NCM_GENERATION_STATUS generation_list_receive_coded(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length) {
+    generation_t* generation;
+    NCM_GENERATION_STATUS status;
 
-	if (g->gentype == FORWARD)
-		return EGENINVAL;
+    generation = generation_find(generation_list, metadata->generation_sequence);
+    if (generation == NULL) {
+        // TODO can this be explicitly covered by some test case?
+        LOG(LOG_WARNING, "Received a seemingly late packet for the generation seq=%d", metadata->generation_sequence);
+        // TODO this might not entirely work with Intermediate nodes (they shouldn't blindly ACK)?
 
-	if (g->state.local->lock)
-		return EGENLOCKED;
+        // to trigger event, we need a reference to some generation.
+        // as ACKs are sent for all active generations, it's actually irrelevant
+        // which generation the pointer references.
+        assert(!list_empty(generation_list));
+        generation = list_first_entry(generation_list, struct generation, list);
 
-	if (len > g->packet_size) {
-		LOG(LOG_ERR, "encoded frame size %d larger than packet_size %d",
-				(int)len, (int)g->packet_size);
-		return EGENNOMEM;
-	}
+        // as align_generation_window() is assumed to have been called,
+        // this is probably the case of a LOST ack for the (last) fully decoded generation.
+        // Thus we just send another ACK so the source can free its side as well!
+        generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
+        return GENERATION_UNAVAILABLE;
+    }
 
-	/* No check for free slot needed since generation becomes locked when
-	   the last slot is used. */
+    status = generation_decoder_add(generation, buffer, length);
 
-	if ((ret = rlnc_block_add(g->rb, g->encoder.cur, src, len))) {
-		LOG(LOG_ERR, "rlnc_block_add() failed: %d", ret);
-		return EGENFAIL;
-	}
-	g->encoder.cur++;
-	g->state.local->sdim++;
-
-	/* encoder.cur points to the next available slot, i.e., the generation
-	   must be locked when it points to an invalid position */
-	if (g->encoder.cur > g->encoder.max)
-		generation_lock(g);
-
-	rtx_dec(g);
-
-	timeout_settime(g->task.rtx, TIMEOUT_FLAG_SHORTEN, rtx_timeout(g));
-
-	return 0;
+    return status;
 }
 
-static ssize_t
-decoder_get(generation_t g, uint8_t *dst, size_t maxlen)
-{
-	int ret;
+static NCM_GENERATION_STATUS generation_list_receive_ack(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length) {
+    int count;
+    ack_payload_t* ack_payloads;
+    ack_payload_t ack;
+    generation_t* generation;
 
-	if (g->decoder.cur > g->decoder.max)
-		return EGENNOMORE;
+    ack_payloads = (ack_payload_t*) buffer;
+    count = (int) (length / sizeof(ack_payload_t));
 
-	ret = rlnc_block_get(g->rb, g->decoder.cur, dst, maxlen);
+    if (count != metadata->window_size) {
+        LOG(LOG_ERR, "Inconsistent ACK length: entries=%d; window_size=%zu", count, length);
+    }
 
-	if (0 > ret) {
-		LOG(LOG_ERR, "rlnc_block_get() failed");
-		return EGENFAIL;
-	}
+    for (int i = 0; i < count; i++) {
+        ack = ack_payloads[i];
+        generation = generation_find(generation_list, ack.sequence_number);
+        if (generation == NULL) {
+            continue;
+        }
 
-	if (ret > 0)
-		g->decoder.cur++;
+        generation_update_remote_dimension(generation, ack.receiver_dim);
+    }
 
-	return ret;
+    (void) generation_list_advance(generation_list);
+    return 0;
 }
 
-ssize_t
-generation_encoder_get(const generation_t g, void *buffer, size_t maxlen)
-{
-	ssize_t ret;
-	int flags = RLNC_STRUCTURED;
+NCM_GENERATION_STATUS generation_list_receive_frame(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length) {
+    NCM_GENERATION_STATUS status;
 
-	if (g->gentype == FORWARD)
-		flags &= ~RLNC_STRUCTURED;
+    // Check for unequal window_ids (does implicit ACKs through the window_id)
+    align_generation_window(generation_list, metadata);
 
-	ret = rlnc_block_encode(g->rb, buffer, maxlen, flags);
+    if (metadata->ack) {
+        status = generation_list_receive_ack(generation_list, metadata, buffer, length);
+    } else {
+        status = generation_list_receive_coded(generation_list, metadata, buffer, length);
+    }
 
-	if (0 > ret) {
-		LOG(LOG_ERR, "rlnc_block_encode() failed");
-		return EGENFAIL;
-	}
-
-	return ret;
+    return status;
 }
 
-static int
-decoder_add(generation_t g, const void *payload, size_t len)
-{
-	/** Encoded packets can be added anytime:
-	 * a) The packet is linear independent => the decoder rank is not full
-	 * b) The packet is linear dependent => it is eliminated anyway
-	 **/
+void generation_write_ack_payload(struct list_head* generations_list, ack_payload_t* payload) {
+    struct generation* cur;
+    int payload_ind;
 
-	int ret;
-
-	ret = rlnc_block_decode(g->rb, payload, len);
-	if (0 > ret) {
-		LOG(LOG_ERR, "rlnc_block_decode() failed");
-		return EGENFAIL;
-	}
-
-	if (g->gentype != FORWARD)
-		g->state.remote->ddim = rlnc_block_rank_decode(g->rb);
-
-	return 0;
+    payload_ind = 0;
+    list_for_each_entry(cur, generations_list, list) {
+        payload[payload_ind].sequence_number = cur->sequence_number;
+        payload[payload_ind].receiver_dim = cur->remote_dimension;
+        payload_ind++;
+    }
 }
 
-int
-generation_encoder_space(const generation_t g)
-{
-	int ret;
+int generation_window_size(struct list_head* generations_list) {
+    generation_t *first, *last;
+    u16 delta;
 
-	ret = g->encoder.max - g->encoder.cur + 1;
-	assert (ret >= 0);
+    first = list_first_entry(generations_list, struct generation, list);
+    last = list_last_entry(generations_list, struct generation, list);
 
-	return ret;
+    delta = delta(last->sequence_number, first->sequence_number, GENERATION_MAX_SEQUENCE_NUMBER);
+    return delta + 1;
 }
 
-int
-generation_encoder_dimension(const generation_t g)
-{
-	return rlnc_block_rank_encode(g->rb);
+u16 generation_window_id(struct list_head* generations_list) {
+    generation_t* first;
+    assert(!list_empty(generations_list) && "Can't retrieve window_id for emtpy generation list!");
+
+    first = list_first_entry(generations_list, struct generation, list);
+
+    return first->sequence_number;
 }
 
-int
-generation_decoder_dimension(const generation_t g)
-{
-	return rlnc_block_rank_decode(g->rb);
-}
+int generation_index(struct list_head* generations_list, generation_t* generation) {
+    generation_t* first;
+    int window_size;
+    u16 delta;
 
-void
-generation_debug_print_state(const generation_t g)
-{
-	LOG(LOG_DEBUG, "%d | %d | %d || %d | %d | %d",
-		g->state.local->sdim, g->state.local->ddim, g->state.local->lock,
-		g->state.remote->sdim, g->state.remote->ddim, g->state.remote->lock);
-}
+    first = list_first_entry(generations_list, struct generation, list);
+    window_size = generation_window_size(generations_list);
 
-generation_t
-generation_encoder_add(struct list_head *gl, void *buffer, size_t len)
-{
-	int ret;
-	generation_t g;
+    delta = delta(generation->sequence_number, first->sequence_number, GENERATION_MAX_SEQUENCE_NUMBER);
 
-	list_for_each_entry(g, gl, list) {
-		if (!generation_encoder_space(g))
-			continue;
-
-		ret = encoder_add(g, buffer, len);
-
-		if (0 > ret)
-			DIE("generation_encoder_add() failed: %d", ret);
-
-		return g;
-	}
-
-	return NULL;
-}
-
-static int
-generation_advance(struct list_head *gl)
-{
-	generation_t first, last, g;
-	int n, seq;
-
-	for (n=0;; n++) {
-		first = list_first_entry(gl, struct generation, list);
-		last = list_last_entry(gl, struct generation, list);
-
-		if (!generation_is_complete(first))
-			break;
-		if (!generation_is_returned(first))
-			break;
-
-		// derive the next sequence number (we incrementally number
-		seq = (last->seq + 1) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
-		generation_reset(first, seq);
-		// move reset generations to the end of the list.
-		// our generation list is always ordered by seq ("active" generations at the start, reset at the end)
-		list_rotate_left(gl);
-	}
-
-	if (n == 0)
-		return 0;
-
-	list_for_each_entry(g, gl, list) {
-		if (g->gentype == FORWARD) {
-			if (generation_is_decoded(g))
-				continue;
-			if (!rlnc_block_rank_decode(g->rb))
-				continue;
-		} else {
-			if (generation_local_flow_decoded(g))
-				continue;
-			if (!timeout_active(g->task.rtx))
-				continue;
-		}
-
-		timeout_settime(g->task.rtx, TIMEOUT_FLAG_SHORTEN,
-							rtx_timeout(g));
-	}
-
-	return n;
-}
-
-generation_t
-generation_find(const struct list_head *gl, int seq)
-{
-	generation_t g;
-
-	list_for_each_entry(g, gl, list) {
-		if (g->seq == seq) {
-			return g;
-		}
-	}
-
-	return NULL;
-}
-
-generation_t
-generation_get(const struct list_head *gl, int idx)
-{
-	generation_t g;
-	int n = 0;
-
-	list_for_each_entry(g, gl, list) {
-		if (n == idx)
-			return g;
-		n++;
-	}
-
-	return NULL;
-}
-
-static int
-generation_process_feedback(struct list_head *gl,
-					const struct ncm_hdr_coded *hdr)
-{
-	size_t len;
-	int count, i, seq;
-	generation_t g;
-
-	len = hdr->hdr.len - sizeof(*hdr);
-	if (len == 0)
-		return 0;
-
-	count = len/sizeof(*hdr->fb);
-
-	for (i=0; i<count; i++) {
-		seq = hdr->lseq + i;
-		g = generation_find(gl, seq);
-		if (!g)
-			continue;
-
-		generation_update_dimensions(g, &hdr->fb[i]);
-		generation_update_locks(g, &hdr->fb[i]);
-
-		if (g->gentype == FORWARD) {
-			if (generation_is_decoded(g)) {
-				timeout_settime(g->task.rtx, 0, NULL);
-				rtx_reset(g);
-                        }
-		} else {
-			if (generation_local_flow_decoded(g)) {
-				timeout_settime(g->task.rtx, 0, NULL);
-				rtx_reset(g);
-			}
-		}
-	}
-
-	return 0;
-}
-
-generation_t
-generation_decoder_add(struct list_head *gl, const void *payload, size_t len,
-				const struct ncm_hdr_coded *hdr)
-{
-	int ret, maxseq;
-	unsigned int delta;
-	generation_t g;
-	session_t s;
-
-	g = list_first_entry(gl, struct generation, list);
-	s = generation_get_session(g);
-	delta = delta(hdr->lseq, g->seq, GENERATION_MAX_SEQUENCE_NUMBER);
-
-	if (delta > 128)//FIXME TODO magic constant
-		delta = 0;
-
-	maxseq = (g->seq + delta) % (GENERATION_MAX_SEQUENCE_NUMBER + 1);
-
-	list_for_each_entry(g, gl, list) {
-		if (g->seq == maxseq)
-			break;
-		generation_assume_complete(g);
-	}
-
-	(void) generation_advance(gl);
-
-	if (!(g = generation_find(gl, hdr->seq))) {
-		if (len > 0) {
-			g = list_first_entry(gl, struct generation, list);
-			timeout_settime(g->task.ack, TIMEOUT_FLAG_INACTIVE,
-				timeout_usec(GENERATION_ACK_MIN_TIMEOUT * 1000,
-						GENERATION_ACK_INTERVAL*1000));
-		}
-		return NULL;
-	}
-
-	if (len > 0) {
-		ret = decoder_add(g, payload, len);
-		if (0 > ret)
-			DIE("decoder_add() failed: %d", ret);
-		// increment counted received data
-		g->state.rx.data++;
-		if (g->gentype == FORWARD)
-			rtx_dec(g);
-	}
-	else {
-		g->state.rx.ack++;
-	}
-
-	generation_process_feedback(gl, hdr);
-
-	if (len > 0) {
-		if (g->gentype == FORWARD) {
-			if (generation_is_decoded(g))
-				timeout_settime(g->task.ack,
-					TIMEOUT_FLAG_INACTIVE,
-					timeout_usec(
-					GENERATION_ACK_MIN_TIMEOUT * 1000,
-					GENERATION_ACK_INTERVAL*1000));
-			else
-				timeout_settime(g->task.rtx,
-					TIMEOUT_FLAG_SHORTEN, rtx_timeout(g));
-		} else {
-			if (generation_remote_flow_decoded(g))
-				timeout_settime(g->task.ack,
-					TIMEOUT_FLAG_INACTIVE,
-					timeout_usec(
-                    GENERATION_ACK_MIN_TIMEOUT * 1000,
-					GENERATION_ACK_INTERVAL*1000));
-		}
-	}
-
-	if (g->gentype == FORWARD)
-		return g;
-
-	do {
-	    // for receiver: as long as we have decodable data, forward the payload back to the OS
-		ret = tx_decoded_frame(s);
-	} while (ret == 0);
-
-	return g;
-}
-
-ssize_t
-generation_decoder_get(struct list_head *gl, void *dst, size_t maxlen)
-{
-	ssize_t len;
-	generation_t g;
-
-	g = list_first_entry(gl, struct generation, list);
-	len = decoder_get(g, (void *)dst, maxlen);
-
-	if (len > 0)
-		return len;
-
-	if (len == EGENNOMORE && generation_advance(g->gl) > 0)
-		return generation_decoder_get(g->gl, dst, maxlen);
-
-	return EGENNOMORE;
-}
-
-session_t
-generation_get_session(generation_t g)
-{
-	return g->session;
-}
-
-int
-generation_local_flow_missing(const generation_t g)
-{
-	return (g->state.local->sdim - g->state.local->ddim);
-}
-
-int
-generation_index(const generation_t g)
-{
-	int winsize;
-	generation_t first;
-
-	first = list_first_entry(g->gl, struct generation, list);
-	winsize = generation_window_size(g->gl);
-
-	// TODO this can produce negative results
-	return delta(g->seq, first->seq, winsize);
-}
-
-static int
-cb_rtx(timeout_t t, u32 overrun, void *data)
-{
-	(void)t;
-	(void)overrun;
-	generation_t g;
-	session_t s;
-	g = data;
-	s = g->session;
-	struct itimerspec *it;
-	struct timespec min_timeout;
-
-	if (g->gentype == FORWARD) {
-		if (generation_is_decoded(g))
-			return 0;
-		if (!rlnc_block_rank_decode(g->rb))
-			return 0;
-	} else {
-		if (generation_local_flow_decoded(g))
-			return 0;
-	}
-
-	if (overrun > 0)
-		LOG(LOG_ERR, "rtx overrun = %d", overrun);
-
-	timespecmset(&min_timeout, GENERATION_RTX_MIN_TIMEOUT);
-	overrun++;
-	do {
-		tx_encoded_frame(s, g);
-		rtx_inc(g);
-		it = rtx_timeout(g);
-		if (overrun > 0)
-			overrun--;
-	} while (timespeccmp(&it->it_value, &min_timeout, <) || overrun > 0);
-
-	timeout_settime(g->task.rtx, 0, it);
-	timeout_settime(g->task.ack, 0, NULL);
-
-	return 0;
-}
-
-static int
-cb_ack(timeout_t t, u32 overrun, void *data)
-{
-	(void) t;
-	(void) overrun;
-	generation_t g;
-	session_t s;
-	g = data;
-	s = g->session;
-
-	if (overrun > 0)
-		LOG(LOG_ERR, "ack overrun = %d", overrun);
-
-	if (qdelay_packet_cnt() > 10) { // TODO magic constant, count of packets sent out but now received by ourselves.
-		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
-			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
-		return 0;
-	}
-
-	tx_ack_frame(s, g);
-	g->state.tx.ack++;
-
-	timeout_settime(g->task.ack, 0, NULL);
-
-	return 0;
-}
-
-int
-generation_remaining_space(const struct list_head *gl)
-{
-	generation_t g;
-	int space = 0;
-
-	list_for_each_entry(g, gl, list)
-		space += generation_encoder_space(g);
-
-	return space;
-}
-
-int
-generation_lseq(const struct list_head *gl)
-{
-	assert(gl->next != gl);
-	return list_first_entry(gl, struct generation, list)->seq;
-}
-
-int
-generation_seq(const generation_t g)
-{
-	return g->seq;
+    return delta % window_size;
 }
 
 
+static int generation_tx_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) timeout;
+    (void) overrun;
+    generation_t* generation;
+    int transmissions;
+
+    generation = data;
+
+    if (generation_remote_decoded(generation)) {
+        return 0;
+    }
+    if (generation_is_complete(generation)) {
+        return 0;
+    }
+
+    if (overrun) {
+        LOG_GENERATION(LOG_WARNING, generation, "generation_tx_callback() detected %d skipped transmissions (overruns)", overrun);
+    }
+
+    transmissions = (int) overrun + 1;
+
+    do {
+        generation_trigger_event(generation, GENERATION_EVENT_ENCODED, NULL);
+        tx_inc(generation);
+
+        if (transmissions > 0) {
+            transmissions--;
+        }
+    } while (tx_timeout_val(generation) < GENERATION_RTX_MIN_TIMEOUT || transmissions > 0);
+
+    LOG(LOG_INFO, "Rescheduling with pivot=%d remote=%d seq=%d gen=%d", generation->next_pivot, generation->remote_dimension, generation->sequence_number, generation->generation_size);
+    // as a timeout, we rely on the session destroy timer
+    generation_timeout_tx_schedule(generation);
+
+    return 0;
+}

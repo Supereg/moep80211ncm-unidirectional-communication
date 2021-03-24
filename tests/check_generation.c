@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <check.h>
 
-#include "check_simulator.h"
+#include "check_suites.h"
 #include "check_utils.h"
 
 #include "../src/generation.h"

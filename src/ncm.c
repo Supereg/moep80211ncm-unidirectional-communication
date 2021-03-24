@@ -483,7 +483,7 @@ send_beacon(timeout_t t, u32 overrun, void *data)
 	(void) data;
 	(void) t;
 	(void) overrun;
-	session_log_state();
+	// TODO session_log_state();
 
 	moep_frame_t frame;
 	struct moep80211_hdr *hdr;
@@ -651,7 +651,8 @@ tap_tx(moep_frame_t f)
 
 static int _set_tap_status(void *data, int status)
 {
-	status = status && session_min_remaining_space();
+    DIE("session_min_remaining_space() unsupported!");
+	// TODO status = status && session_min_remaining_space();
 	return moep_dev_set_rx_status(cfg.tap.dev, status);
 }
 
@@ -674,7 +675,8 @@ run()
 
 	moep_run(signal_handler, NULL);
 
-	session_cleanup();
+	DIE("session_cleanup() not supported!");
+	// TODO session_cleanup();
 
 	timeout_delete(beacon_timeout);
 }
@@ -689,7 +691,7 @@ taph(moep_dev_t dev, moep_frame_t frame)
 	struct moep_hdr_pctrl *pctrl;
 	struct ncm_hdr_bcast *bcast;
 	size_t len;
-	session_t s;
+	session_t* s;
 
 	etherptr = moep_frame_ieee8023_hdr(frame);
 	memcpy(&ether, etherptr, sizeof(ether));
@@ -727,6 +729,9 @@ taph(moep_dev_t dev, moep_frame_t frame)
 		return 0;
 	}
 
+	DIE("sending coded packets isn't yet supported!");
+
+	/*
 	// set sid to session id (chose lexicographically smaller value of shost/dhost)
 	if (0 > session_sid(sid, ether.ether_shost, ether.ether_dhost))
 		DIE("session_sid() failed: %s", strerror(errno));
@@ -737,6 +742,7 @@ taph(moep_dev_t dev, moep_frame_t frame)
 
 	// encode frame
 	session_encoder_add(s, frame);
+    */
 
 	// dont send frame??
 	set_tap_status();
@@ -759,7 +765,7 @@ radh(moep_dev_t dev, moep_frame_t frame)
 	struct moep80211_radiotap *rt;
 	struct ether_header *etherptr, ether;
 	size_t len;
-	session_t s;
+	session_t* s;
 
 	hdr = moep_frame_moep80211_hdr(frame);
 	if (0 == memcmp(hdr->ta, cfg.hwaddr, IEEE80211_ALEN)) {
@@ -823,10 +829,15 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		coded = (struct ncm_hdr_coded *)
 			moep_frame_moep_hdr_ext(frame, NCM_HDR_CODED);
 
+		// TODO support
+		DIE("Receiving NCM_CODED packets isn't supported!");
+
+		/*
 		if (!(s = session_find(coded->sid)))
 			s = session_register(&cfg.session, NULL, coded->sid);
 
 		session_decoder_add(s, frame);
+		*/
 		break;
 
     case NCM_BEACON:

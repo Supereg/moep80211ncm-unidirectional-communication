@@ -1,611 +1,538 @@
-#include <errno.h>
-#include <math.h>
+//
+// Created by Andreas Bauer on 22.02.21.
+//
 
-#include <moep/system.h>
-#include <moep/modules/ieee8023.h>
-#include <moep/modules/moep80211.h>
+#include "global.h"
+#include "session.h"
+
+#include <assert.h>
 
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
 #include <moepcommon/timeout.h>
 
-#include <jsm.h>
-
-#include "global.h"
 #include "generation.h"
-#include "qdelay.h"
-#include "session.h"
-#include "ncm.h"
-#include "neighbor.h"
-#include "linkstate.h"
 
-/**
- * Callbacks for timeouts
- */
-int cb_destroy(timeout_t t, u32 overrun, void *data);
-int cb_dequeue(struct jsm80211_module* module, void* packet, void* data);
+void session_free(session_t* session); // forward declaration used in session_callback_destroy()
+void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
+static void session_activity(session_t* session); // forward declaration used in generation_init()
 
-struct session_tasks {
-	timeout_t destroy;
-} task;
+static void session_generation_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result);
+static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data);
+static int session_ack_callback(timeout_t timeout, u32 overrun, void* data);
 
-/**
- * Global statistics of this sesssion:
- * @rx.data: number of (coded) data packets received.
- * @rx.ack: number of explicit acks reveived.
- * @rx.late_data: number of (coded) data packets reveived for past generation.
- * @rx.late_ack: number of explicit acks reveied for past generation.
- * @rx.excess_data: FIXME still valid?
- * tx.data: number of (coded) data packes sent.
- * tx.ack: number of explicit acknowledgements sent.
- * tx.redundant: number of redundant (coded) data packets sent, not account for
- * random linear dependencies.
- * count: number of passed generations.
- */
-struct session_state {
-	struct {
-		int data;
-		int ack;
-		int late_data;
-		int late_ack;
-		int excess_data;
-	} rx;
-	struct {
-		int data;
-		int ack;
-		int redundant;
-	} tx;
-	int count;
+struct session_timeouts {
+    /**
+     * Timeout ran with `SESSION_TIMEOUT` delay, removing/cleaning up the session
+     * when timeout is reached. Timeout is reset for every activity on the session.
+     */
+    timeout_t destroy;
+    /**
+     * Acknowledgment timer used to debounce sending out ACKs for our generations.
+     * On every received coded packet, the timer will be scheduled with `SESSION_ACK_TIMEOUT` milliseconds,
+     * combining ACKs if multiple packets receive consecutively.
+     */
+    timeout_t ack;
 };
 
-struct session_rtt {
-	int rtt_mean;	// RTT mean [usec]
-	int rtt_sdev;	// RTT sdev [usec]
-};
-
+/**
+ * Defines any state of a given session.
+ */
 struct session {
-	// pointer to session list head?
-	struct list_head list;
-	struct params_session	params;
-	struct jsm80211_module *jsm_module;
+    struct list_head list;
 
-	//FIXME we do not want unnamed unions
-	union {
-		u8 sid[2*IEEE80211_ALEN];
-		struct {
-			u8 master[IEEE80211_ALEN];
-			u8 slave[IEEE80211_ALEN];
-		} hwaddr;
-	};
-	// MASTER SLAVE FORWARD
-	enum GENERATION_TYPE gentype;
+    /**
+     * The associated `session_subsystem_context_t` this session was added to.
+     */
+    session_subsystem_context_t* context;
 
-	struct session_state state;
-	struct session_tasks task;
+    /**
+     * The `session_id` uniquely identifying the given session!
+     */
+    session_id session_id;
 
-	// generations list: session can have multiple generations
-	struct list_head gl;
+    /**
+     * The `SESSION_TYPE` of the given session.
+     */
+    enum SESSION_TYPE type;
+
+    struct session_timeouts timeouts;
+
+    /**
+     * Linked list, containing all `generation_t`s associated with the given session.
+     */
+    struct list_head generations_list;
 };
 
-static int (*tx_encoded)(struct moep_frame *) = rad_tx;
-static int (*tx_decoded)(struct moep_frame *) = tap_tx;
+
+session_subsystem_context_t* session_subsystem_init(
+    int generation_size,
+    int generation_window_size,
+    enum MOEPGF_TYPE moepgf_type,
+    u8* hw_address,
+    encoded_payload_callback rtx_callback,
+    decoded_payload_callback os_callback) {
+    struct session_subsystem_context* context;
+
+    assert(hw_address != NULL && "hw_address pointer can't be NULL pointer!");
+    assert(rtx_callback != NULL && "rtx_callback pointer can't be NULL pointer!");
+    assert(os_callback != NULL && "os_callback pointer can't be NULL pointer!");
+
+    context = calloc(1, sizeof(session_subsystem_context_t));
+    if (context == NULL) {
+        DIE("Failed session_subsystem_init() to allocated a `session_subsystem_context_t`!");
+    }
+
+    *(int*) &context->generation_size = generation_size;
+    *(int*) &context->generation_window_size = generation_window_size;
+    *(enum MOEPGF_TYPE*) &context->moepgf_type = moepgf_type;
+
+    memcpy(context->local_address, hw_address, IEEE80211_ALEN);
+
+    context->rtx_callback = rtx_callback;
+    context->os_callback = os_callback;
+
+    INIT_LIST_HEAD(&context->sessions_list);
+
+    return context;
+}
+
+void session_subsystem_close(session_subsystem_context_t* context) {
+    session_list_free(context);
+
+    free(context);
+}
+
+
 
 /**
- * Session list. Take care of it.
+ * Determines the `SESSION_TYPE` for the given tuple of source and destination mac addresses,
+ * by comparing them to the local hardware address.
+ * Parameters `ether_source_host` and `ether_destination_host` must not be equal!
+ *
+ * @param ether_source_host - The source mac address.
+ * @param ether_destination_host - The destination mac address.
+ * @return Returns the `SESSION_TYPE` depending of the result of comparisons against the local hardware address.
  */
-static LIST_HEAD(sl);
+enum SESSION_TYPE session_type_derived(session_subsystem_context_t* context, const u8* ether_source_host, const u8 *ether_destination_host) {
+    // Seemingly the ncm module is not built to expect matching addresses
+    assert(memcmp(ether_source_host, ether_destination_host, IEEE80211_ALEN) != 0);
 
-
-static inline int
-compare(struct session *s1, struct session *s2)
-{
-	return memcmp(s1->sid, s2->sid, sizeof(s1->sid));
+    if (memcmp(context->local_address, ether_source_host, IEEE80211_ALEN) == 0) {
+        return SOURCE;
+    } else if (memcmp(context->local_address, ether_destination_host, IEEE80211_ALEN) == 0) {
+        return DESTINATION;
+    } else {
+        return INTERMEDIATE;
+    }
 }
 
-static u8 *
-session_find_remote_address(struct session *s)
-{
-	int ret1, ret2;
+session_t* session_find(session_subsystem_context_t* context, const u8* ether_source_host, const u8 *ether_destination_host) {
+    struct session* session;
+    enum SESSION_TYPE session_type;
 
-	ret1 = memcmp(s->hwaddr.master, ncm_get_local_hwaddr(), IEEE80211_ALEN);
-	ret2 = memcmp(s->hwaddr.slave, ncm_get_local_hwaddr(), IEEE80211_ALEN);
+    session_type = session_type_derived(context, ether_source_host, ether_destination_host);
 
-	if (ret1 == 0 && ret2 == 0)
-		return NULL;
-	else if (ret1 == 0)
-		return s->hwaddr.slave;
-	else
-		return s->hwaddr.master;
+    list_for_each_entry(session, &context->sessions_list, list) {
+        if (memcmp(session->session_id.source_address, ether_source_host, IEEE80211_ALEN) == 0
+            && memcmp(session->session_id.destination_address, ether_destination_host, IEEE80211_ALEN) == 0
+            && session->type == session_type) {
+            // the additional type check above, allows us to have the SOURCE=DESTINATION
+            // Not really supported by the ncm code itself (as we ignored packets from our own)
+            // but helps with some flexibility in our unit tests.
+            return session;
+        }
+    }
+
+    return NULL;
 }
 
-static char *get_log_fn(session_t s)
-{
-	static char filename[1000];
+session_t* session_register(session_subsystem_context_t* context, const u8* ether_source_host, const u8 *ether_destination_host) {
+    enum SESSION_TYPE session_type;
+    struct session* session;
+    int ret;
 
-	snprintf(filename, 1000, "%s%d_%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x.log",
-		SESSION_LOG_FILE_PREFIX,
-		getpid(),
-		s->sid[ 0], s->sid[ 1], s->sid[ 2], s->sid[ 3],
-		s->sid[ 4], s->sid[ 5], s->sid[ 6], s->sid[ 7],
-		s->sid[ 8], s->sid[ 9], s->sid[10], s->sid[11]);
-	return filename;
+    session_type = session_type_derived(context, ether_source_host, ether_destination_host);
+    session = session_find(context, ether_source_host, ether_destination_host);
+
+    if (session != NULL) {
+        assert(session->type == session_type);
+        return session;
+    }
+
+    session = calloc(1, sizeof(struct session));
+    if (session == NULL) {
+        DIE_SESSION(session, "Failed to calloc() session: %s", strerror(errno));
+    }
+
+    session->context = context;
+
+    memcpy(session->session_id.source_address, ether_source_host, IEEE80211_ALEN);
+    memcpy(session->session_id.destination_address, ether_destination_host, IEEE80211_ALEN);
+
+    session->type = session_type;
+    INIT_LIST_HEAD(&session->generations_list);
+
+    ret = timeout_create(CLOCK_MONOTONIC, &session->timeouts.destroy, session_destroy_callback, session);
+    if (ret != 0) {
+        session_free(session);
+        DIE_SESSION(session, "session_register() failed to create destroy timeout: %s", strerror(errno));
+    }
+
+    if (session_type == DESTINATION || session_type == INTERMEDIATE) {
+        ret = timeout_create(CLOCK_MONOTONIC, &session->timeouts.ack, session_ack_callback, session);
+        if (ret != 0) {
+            session_free(session);
+            DIE_SESSION(session, "session_register() failed to create ack timeout: %s", strerror(errno));
+        }
+    }
+
+    for (int i = 0; i < context->generation_window_size; i++) {
+        (void) generation_init(
+            &session->generations_list,
+            session_type,
+            context->moepgf_type,
+            context->generation_size,
+            GENERATION_MAX_PDU_SIZE,
+            MEMORY_ALIGNMENT,
+            session_generation_event_handler,
+            session);
+    }
+
+    list_add(&session->list, &context->sessions_list);
+
+    session_activity(session); // initializes the destroy_timeout!
+
+    LOG_SESSION(LOG_INFO, session, "New session created");
+
+    return session;
 }
 
-static int
-session_type(const u8 *sid)
-{
-	if (0 == memcmp(sid, ncm_get_local_hwaddr(), IEEE80211_ALEN))
-		return MASTER;
-	else if (0 == memcmp(sid+IEEE80211_ALEN, ncm_get_local_hwaddr(),
-							IEEE80211_ALEN))
-		return SLAVE;
-	else
-		return FORWARD;
+session_id* session_get_id(session_t* session) {
+    return &session->session_id;
 }
 
-static void
-session_destroy(struct session *s)
-{
-	list_del(&s->list);
-
-	jsm80211_cleanup(s->jsm_module);
-
-	generation_list_destroy(&s->gl);
-	timeout_delete(s->task.destroy);
-
-	unlink(get_log_fn(s));
-
-	LOG(LOG_INFO, "session destroyed");
-
-	free(s);
+enum SESSION_TYPE session_get_type(session_t* session) {
+    return session->type;
 }
 
-static void
-init_coding_header(const struct session *s, const generation_t g,
-						struct ncm_hdr_coded *hdr)
-{
-	memcpy(hdr->sid, s->sid, sizeof(hdr->sid));
-	hdr->lseq = generation_lseq(&s->gl);
-	hdr->seq = generation_seq(g);
-	hdr->gf = s->params.gftype;
-	hdr->window_size = generation_window_size(&s->gl);
+void session_free(session_t* session) {
+    list_del(&session->list);
+
+    generation_list_free(&session->generations_list);
+
+    if (session->timeouts.destroy != NULL) {
+        timeout_delete(session->timeouts.destroy);
+    }
+
+    if (session->timeouts.ack != NULL) {
+        timeout_delete(session->timeouts.ack);
+    }
+
+    // TODO potential logging file unlink (do we want/need to [re]implement that?)
+
+    LOG_SESSION(LOG_INFO, session, "Session destroyed");
+
+    free(session);
 }
 
-static int
-serialize_for_encoding(void *buffer, size_t maxlen, struct moep_frame *f)
-{
-	size_t len;
-	u8 *payload;
-	struct moep_hdr_pctrl *pctrl;
-	struct ether_header *ether;
+/**
+ * Frees up the global session list.
+ */
+void session_list_free(session_subsystem_context_t* context) {
+    session_t *current, *tmp;
 
-	if (!(ether = moep_frame_ieee8023_hdr(f)))
-		DIE("ether_header not found");
-
-	payload = moep_frame_get_payload(f, &len);
-
-	if (len+sizeof(*pctrl) > maxlen)
-		DIE("unable to serialize frame for encoding (frame too long)");
-
-	pctrl = buffer;
-	pctrl->hdr.type = MOEP_HDR_PCTRL;
-	pctrl->hdr.len  = sizeof(*pctrl);
-	pctrl->type = htole16(be16toh(ether->ether_type));
-	pctrl->len = len;
-
-	memcpy(buffer+sizeof(*pctrl), payload, len);
-
-	return len+sizeof(*pctrl);
+    list_for_each_entry_safe(current, tmp, &context->sessions_list, list) {
+        session_free(current);
+    }
 }
 
-int
-session_sid(u8 *sid, const u8 *hwaddr1, const u8 *hwaddr2)
-{
-	int ret = memcmp(hwaddr1, hwaddr2, IEEE80211_ALEN);
+static void session_activity(session_t* session) {
+    int ret;
 
-	if (ret == 0) {
-		errno = EINVAL;
-		return -1;
+    assert(session->timeouts.destroy != NULL && "session destroy timeout was never initialized!");
+
+    ret = timeout_settime(session->timeouts.destroy, 0, timeout_msec(SESSION_TIMEOUT, 0));
+    if (ret != 0) {
+        DIE_SESSION(session, "session_activity() failed to timeout_settime() for destroy timeout: %s", strerror(errno));
+    }
+}
+
+static void session_timeout_ack_schedule(session_t* session) {
+    int ret;
+    ret = timeout_settime(session->timeouts.ack, TIMEOUT_FLAG_INACTIVE, timeout_msec(SESSION_ACK_TIMEOUT, 0));
+
+    if (ret != 0) {
+        DIE_SESSION(session, "session_timeout_ack_schedule() failed timeout_settime(): %s", strerror(errno));
+    }
+}
+
+static void session_timeout_ack_reset(session_t* session) {
+    int ret;
+    ret = timeout_clear(session->timeouts.ack);
+
+    if (ret != 0) {
+        DIE_SESSION(session, "session_timeout_ack_reset() failed timeout_clear(): %s", strerror(errno));
+    }
+}
+
+
+int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t payload_length) {
+    NCM_GENERATION_STATUS status;
+    static u8 buffer[GENERATION_MAX_PDU_SIZE] = {0};
+    size_t buffer_length;
+    // see docs of `coded_payload_metadata`
+    coded_payload_metadata_t* metadata;
+
+    assert(session->type == SOURCE && "Only a SOURCE session can add source frames!");
+
+    session_activity(session);
+
+    // 1. prepend our frame buffer with the `coded_payload_metadata` metadata
+    //   to preserve ether type and length information in our linear combinations of packets
+
+    buffer_length = payload_length + sizeof(coded_payload_metadata_t);
+    // TODO we later need to transport the coding vectors + the buffer in a single PDU,
+    //   thus this check would somehow need to account for that
+    //   (the check will be repeated later [with also checking coding coefficients], but is probably better to catch that early?
+    if (buffer_length > GENERATION_MAX_PDU_SIZE) {
+        LOG_SESSION(LOG_WARNING, session, "Received a source frame which is bigger than the maximum of %lu bytes",
+                    (GENERATION_MAX_PDU_SIZE - sizeof(coded_payload_metadata_t)));
+        return -1;
+    }
+
+    metadata = (void*) buffer;
+    metadata->payload_type = htole16(be16toh(ether_type)); // iee 80211 is LE
+
+    memcpy(buffer + sizeof(coded_payload_metadata_t), payload, payload_length);
+
+
+    // 2. add the buffer (with prepended `coded_payload_metadata`) to the next available generation in our list.
+    status = generation_list_encoder_add(&session->generations_list, buffer, buffer_length);
+    if (status != GENERATION_STATUS_SUCCESS) {
+        // most probably happens when our generations are full and we can't store any further frames.
+        LOG_SESSION(LOG_WARNING, session, "Failed to store source frame(%d), discarding...", status);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void session_check_for_decoded_frames(session_t* session) {
+    NCM_GENERATION_STATUS  status;
+    static u8 buffer[GENERATION_MAX_PDU_SIZE] = {0};
+    size_t buffer_length;
+
+    coded_payload_metadata_t* metadata;
+    u8* payload;
+    size_t payload_length;
+
+    assert(session->type == DESTINATION && "forwards are currently unsupported");
+
+    for (;;) {
+        buffer_length = 0;
+        status = generation_list_next_decoded(&session->generations_list, sizeof(buffer), buffer, &buffer_length);
+
+        if (status == GENERATION_FULLY_TRAVERSED || status == GENERATION_NOT_YET_DECODABLE) {
+            break;
+        } else if (status != GENERATION_STATUS_SUCCESS) {
+            LOG_SESSION(LOG_WARNING, session, "Found unexpected error when trying to retrieve next decoded payload: %d", status);
+            break;
+        }
+
+        // every encoded frame is prepended with a `struct coded_payload_metadata`
+        // below code is undoing this, and pulling out all the metadata information.
+
+        metadata = (void*) buffer;
+        payload = buffer + sizeof(coded_payload_metadata_t);
+        payload_length = buffer_length - sizeof(coded_payload_metadata_t);
+
+        // ieee 80211 is LE, while ieee 8023 is BE
+        u16 ether_type = htobe16(le16toh(metadata->payload_type));
+
+        session->context->os_callback(session->context, session, ether_type, payload, payload_length);
+    }
+}
+
+int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
+    NCM_GENERATION_STATUS status;
+
+    if (session->context->moepgf_type != metadata->gf) {
+        LOG_SESSION(LOG_ERR, session, "Received frame with dissimilar gf type. remote=%d; local=%d. Discarding...",
+                    session->context->moepgf_type, metadata->gf);
+        return -1;
+    }
+
+    if (session->context->generation_window_size != metadata->window_size) {
+        LOG_SESSION(LOG_ERR, session, "Received frame with dissimilar window sizes. remote=%d; local=%d. Discarding...",
+                    session->context->generation_window_size, metadata->window_size);
+        return -1;
+    }
+
+    assert((metadata->ack && (session->type == SOURCE || session->type == INTERMEDIATE))
+        || (!metadata->ack && (session->type == DESTINATION || session->type == INTERMEDIATE)));
+
+    session_activity(session);
+
+    status = generation_list_receive_frame(&session->generations_list, metadata, payload, length);
+    if (status != GENERATION_STATUS_SUCCESS) {
+        if (status == GENERATION_UNAVAILABLE && !metadata->ack) {
+            // stale coded packet, which is fine, we will retransmit a ACK
+            return 0;
+        }
+        // we require in generation_list_receive_frame that any non-zero status logs an error
+        // no need to do a generic "something went wrong" message here
+        return -1;
+    }
+
+    if (session->type == DESTINATION) {
+        session_check_for_decoded_frames(session);
+    }
+
+    return 0;
+}
+
+/**
+ * generates the metadata values for a given session
+ * @param metadata pointer to metadata struct that is to be filled out
+ * @param session pointer to current session
+ * @param ack flag if acknowledgment flag is to be set
+ */
+static void session_packet_metadata(coded_packet_metadata_t* metadata, session_t* session, bool ack) {
+    metadata->sid = *(session_get_id(session));
+    metadata->generation_sequence = 0; // this will be set by generation_list_next_encoded_frame afterwards
+    metadata->window_id = generation_window_id(&session->generations_list);
+    metadata->gf = session->context->moepgf_type;
+    metadata->ack = ack;
+    metadata->window_size = session->context->generation_window_size;
+}
+
+int session_transmit_encoded_frame(session_t* session, generation_t* generation) {
+    NCM_GENERATION_STATUS status;
+    static u8 buffer[GENERATION_MAX_PDU_SIZE] = {0};
+    static coded_packet_metadata_t metadata;
+    size_t length;
+
+    session_packet_metadata(&metadata, session, 0);
+
+    status = generation_next_encoded_frame(generation, sizeof(buffer), &metadata.generation_sequence, buffer, &length);
+
+    if (status != GENERATION_STATUS_SUCCESS) {
+        return -1;
+    }
+
+    session->context->rtx_callback(session->context, session, &metadata, buffer, length);
+
+    return 0;
+}
+
+int session_transmit_ack_frame(session_t* session) {
+    static coded_packet_metadata_t metadata;
+    ack_payload_t* payload;
+
+    payload = calloc(1, sizeof(ack_payload_t) * session->context->generation_window_size);
+    if (payload == NULL) {
+        DIE_SESSION(session, "Failed session_transmit_ack_frame() to calloc() ack_payload_t");
+    }
+
+    generation_write_ack_payload(&session->generations_list, payload);
+
+    session_packet_metadata(&metadata, session, true);
+
+    session->context->rtx_callback(session->context, session, &metadata, (u8 *) payload,
+                                   (sizeof(ack_payload_t) * session->context->generation_window_size));
+
+    free(payload);
+
+    return 0;
+}
+
+/**
+ * Calculates the number of transmission we expect to be required to successfully transmit a single frame,
+ * based on the current link quality.
+ * The returned value is in the interval of [1.0, infinity).
+ */
+ // TODO below is already the draft for the session_redundancy function
+ //  has some external requirements, we somehow need to mock in the unit test
+/*
+double session_redundancy(session_t* session) {
+   u8* hw_addr;
+   double redundancy;
+
+   // we do not (need to) support the 3-node/relay case
+
+   if (!(hw_addr = session_find_remote_address(s))) {
+       LOG_SESSION(LOG_WARNING, session, "session_redundancy(): unable to find remote address");
+       return 0.0;
+   }
+
+   if (s->params.rscheme == 0)
+       redundancy = 1.0 / nb_ul_quality(hw_addr, NULL, NULL);
+   else
+       redundancy = nb_ul_redundancy(hw_addr);
+
+   return redundancy;
+}
+*/
+
+
+static void session_generation_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result) {
+    session_t* session;
+    session = data;
+
+    switch (event) {
+        case GENERATION_EVENT_ACK:
+            // be aware, that the generation pointer might be some "random" generation
+            // e.g. for ACK retransmission of generations, where generation was already freed
+            session_timeout_ack_schedule(session);
+            break;
+        case GENERATION_EVENT_ENCODED:
+            session_transmit_encoded_frame(session, generation);
+            break;
+        case GENERATION_EVENT_RESET:
+            // TODO equivalent to "session_commit" (do we need the stats system though?)
+            break;
+        case GENERATION_EVENT_SESSION_REDUNDANCY:
+            *(double*) result = 1.0; // TODO implement above session_redundancy function (with the neighbour list dependency)
+            break;
+        default:
+            DIE_SESSION(session, "Received unknown generation event: %d", event);
+    }
+}
+
+static int session_destroy_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) timeout;
+    (void) overrun;
+    session_t* session = data;
+    session_free(session);
+    return 0;
+}
+
+static int session_ack_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) timeout;
+    (void) overrun;
+    session_t* session;
+    assert(data != NULL && "session pointer not present on session_ack_callback()");
+
+    session = data;
+
+    if (overrun) {
+        LOG_SESSION(LOG_WARNING, session, "session_ack_callback() detected %d skipped executions (overruns)", overrun);
+    }
+
+    // TODO magic constant, count of packets sent out but now received by ourselves.
+    //  external dependency, needs mocking in the unit test!
+    /*
+    if (qdelay_packet_cnt() > 10) {
+		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
+			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
+		return 0;
 	}
+     */
 
-	if (ret < 0) {
-		memcpy(sid, hwaddr1, IEEE80211_ALEN);
-		memcpy(sid+IEEE80211_ALEN, hwaddr2, IEEE80211_ALEN);
-	}
-	else {
-		memcpy(sid, hwaddr2, IEEE80211_ALEN);
-		memcpy(sid+IEEE80211_ALEN, hwaddr1, IEEE80211_ALEN);
-	}
 
-	return 0;
+    session_transmit_ack_frame(session);
+    session_timeout_ack_reset(session);
+
+    return 0;
 }
-
-session_t
-session_find(const u8 *sid)
-{
-	struct session *tmp, *cur;
-
-	list_for_each_entry_safe(cur, tmp, &sl, list) {
-		if (0 == memcmp(sid, cur->sid, sizeof(cur->sid)))
-			return cur;
-	}
-
-	return NULL;
-}
-
-session_t
-session_register(const struct params_session *params,
-				const struct params_jsm *jsm, const u8 *sid)
-{
-	struct session *s;
-	int i;
-
-	if (!(s = calloc(1, sizeof(*s))))
-		DIE("calloc() failed: %s", strerror(errno));
-
-	s->params = *params;
-	memcpy(s->sid, sid, sizeof(s->sid));
-
-	s->gentype = session_type(s->sid);
-
-	if (jsm) {
-		if (0 > jsm80211_init(&s->jsm_module,
-			(struct jsm80211_parameters *)jsm, cb_dequeue, s))
-			DIE("jsm80211_init() failed");
-	}
-
-	if (0 > timeout_create(CLOCK_MONOTONIC, &s->task.destroy, cb_destroy,s))
-		DIE("timeout_create() failed: %s", strerror(errno));
-
-	timeout_settime(s->task.destroy, 0, timeout_msec(SESSION_TIMEOUT,0));
-
-	INIT_LIST_HEAD(&s->gl);
-
-	for (i=0; i<s->params.winsize; i++) {
-		(void) generation_init(s, &s->gl, s->gentype,
-		params->gftype, params->gensize, GENERATION_MAX_PDU_SIZE, i);
-	}
-
-	list_add(&s->list, &sl);
-
-	LOG(LOG_INFO, "new sesion created");
-
-	return s;
-}
-
-void
-session_cleanup()
-{
-	struct session *tmp, *cur;
-
-	list_for_each_entry_safe(cur, tmp, &sl, list) {
-		session_destroy(cur);
-	}
-}
-
-int
-tx_decoded_frame(struct session *s)
-{
-	moep_frame_t frame;
-	ssize_t len;
-	struct moep_hdr_pctrl *pctrl;
-	struct ether_header *etherptr;
-	u8 *hwaddr_remote;
-	u8 buffer[GENERATION_MAX_PDU_SIZE];
-
-	len = generation_decoder_get(&s->gl, buffer, sizeof(buffer));
-
-	if (len == EGENNOMORE)
-		return -1;
-
-	if (0 >= len)
-		DIE("gswin_decoder_get() failed: %d", (int)len);
-
-	hwaddr_remote = session_find_remote_address(s);
-	if (!hwaddr_remote)
-		DIE("failed to dermine remote hwaddr");
-
-	frame = moep_frame_ieee8023_create();
-
-	etherptr = moep_frame_ieee8023_hdr(frame);
-	memcpy(etherptr->ether_shost, hwaddr_remote, IEEE80211_ALEN);
-	memcpy(etherptr->ether_dhost, ncm_get_local_hwaddr(), IEEE80211_ALEN);
-
-	pctrl = (void *)buffer;
-	etherptr->ether_type = htobe16(le16toh(pctrl->type));
-
-	moep_frame_set_payload(frame, (void *)pctrl+sizeof(*pctrl), pctrl->len);
-
-	if(s->jsm_module) {
-		if(0 != jsm80211_queue(s->jsm_module, frame))
-			DIE("jsm80211_queue() failed");
-	}
-	else {
-		tx_decoded(frame);
-		moep_frame_destroy(frame);
-	}
-
-	return 0;
-}
-
-int
-tx_encoded_frame(struct session *s, generation_t g)
-{
-	moep_frame_t frame;
-	u8 payload[GENERATION_MAX_PDU_SIZE];
-	struct ncm_hdr_coded *coded;
-	struct generation_feedback *fb;
-	struct moep80211_hdr *hdr;
-	int count;
-	size_t len;
-	ssize_t ret;
-
-	frame = create_rad_frame();
-
-	count = generation_window_size(&s->gl);
-	len = sizeof(*coded) + count*sizeof(*fb);
-
-	coded = (struct ncm_hdr_coded *)
-		moep_frame_add_moep_hdr_ext(frame, NCM_HDR_CODED, len);
-	init_coding_header(s, g, coded);
-
-	fb = coded->fb;
-	if (0 > generation_feedback(g, fb, count*sizeof(*fb)))
-		DIE("generation_feedback() failed: %s", strerror(errno));
-
-	ret = generation_encoder_get(g, payload, sizeof(payload));
-	if (0 > ret)
-		DIE("generation_encoder_get() failed: %d", (int)ret);
-
-	moep_frame_set_payload(frame, payload, ret);
-
-	hdr = moep_frame_moep80211_hdr(frame);
-	memset(hdr->ra, 0xff, IEEE80211_ALEN);
-	memcpy(hdr->ta, ncm_get_local_hwaddr(), IEEE80211_ALEN);
-
-	tx_encoded(frame);
-
-	moep_frame_destroy(frame);
-
-	return 0;
-}
-
-int
-tx_ack_frame(struct session *s, generation_t g)
-{
-	moep_frame_t frame;
-	struct ncm_hdr_coded *coded;
-	struct generation_feedback *fb;
-	struct moep80211_hdr *hdr;
-	int count;
-	size_t len;
-
-	frame = create_rad_frame();
-
-	count = generation_window_size(&s->gl);
-	len = sizeof(*coded) + count*sizeof(*fb);
-
-	coded = (struct ncm_hdr_coded *)
-		moep_frame_add_moep_hdr_ext(frame, NCM_HDR_CODED, len);
-	init_coding_header(s, g, coded);
-
-	fb = coded->fb;
-	if (0 > generation_feedback(g, fb, count*sizeof(*fb)))
-		DIE("generation_feedback() failed: %s", strerror(errno));
-
-	hdr = moep_frame_moep80211_hdr(frame);
-	memset(hdr->ra, 0xff, IEEE80211_ALEN);
-	memcpy(hdr->ta, ncm_get_local_hwaddr(), IEEE80211_ALEN);
-
-	tx_encoded(frame);
-
-	moep_frame_destroy(frame);
-
-	return 0;
-}
-
-void
-session_commit_state(struct session *s, const struct generation_state *state)
-{
-	s->state.count++;
-
-	s->state.rx.data += state->rx.data;
-	s->state.tx.data += state->tx.data;
-	s->state.rx.ack  += state->rx.ack;
-	s->state.tx.ack  += state->tx.ack;
-
-	s->state.tx.redundant += state->tx.redundant;
-
-	if (s->gentype != FORWARD)
-		s->state.rx.excess_data += (state->rx.data - state->remote->sdim);
-
-	return;
-}
-
-void
-session_decoder_add(struct session *s, moep_frame_t frame)
-{
-	struct ncm_hdr_coded *coded;
-	size_t len;
-	u8 *payload;
-
-	timeout_settime(s->task.destroy, 0, timeout_msec(SESSION_TIMEOUT,0));
-
-	coded = (struct ncm_hdr_coded *)
-		moep_frame_moep_hdr_ext(frame, NCM_HDR_CODED);
-	payload = moep_frame_get_payload(frame, &len);
-
-	if (NULL == generation_decoder_add(&s->gl, payload, len, coded)) {
-		// generation could not be found, this is a lost ack/data packet
-		if (len > 0)
-			s->state.rx.late_data++;
-		else
-			s->state.rx.late_ack++;
-	}
-}
-
-int
-session_encoder_add(struct session *s, moep_frame_t f)
-{
-	ssize_t len;
-	static u8 buffer[4096];
-	generation_t g;
-
-	timeout_settime(s->task.destroy, 0, timeout_msec(SESSION_TIMEOUT,0));
-
-	len = serialize_for_encoding(buffer, sizeof(buffer), f);
-	g = generation_encoder_add(&s->gl, buffer, len);
-
-	if (!g) {
-		LOG(LOG_WARNING, "session full, frame discarded");
-		return -1;
-	}
-
-	return 0;
-}
-
-double
-session_redundancy(session_t s)
-{
-	u8 *hwaddr, *master, *slave;
-	const u8 relay[] = {0xde,0xad,0xbe,0xef,0x02,0x03};
-	double ret, rs, rm, ms, sm, x, y;
-
-	if (s->params.rscheme == 2) {
-		// RELAY SCHEME
-		if (session_type(s->sid) == FORWARD) {
-			master = s->hwaddr.master;
-			slave = s->hwaddr.slave;
-
-			rm = nb_ul_quality(master, NULL, NULL);
-			rs = nb_ul_quality(slave, NULL, NULL);
-
-			ms = ls_quality(master, slave, NULL, NULL);
-			sm = ls_quality(slave, master, NULL, NULL);
-
-			return max((1.0-ms)/rs,(1.0-sm)/rm);
-		} else {
-			if (!(hwaddr = session_find_remote_address(s))) {
-				LOG(LOG_WARNING, "uplink_quality(): unable to find remote "
-					"address");
-				return 0.0;
-			}
-
-			x = nb_ul_quality(hwaddr, NULL, NULL);
-			if (nb_exists(relay)) {
-				y = nb_ul_quality(relay, NULL, NULL);
-				return 1.0/(1.0 - (1.0-x)*(1.0-y));
-			}
-			return 1.0/x;
-		}
-	}
-
-	// NON-RELAY SCHEME
-	if (!(hwaddr = session_find_remote_address(s))) {
-		LOG(LOG_WARNING, "uplink_quality(): unable to find remote "
-			"address");
-		return 0.0;
-	}
-
-	if (s->params.rscheme == 0)
-		ret = 1.0/nb_ul_quality(hwaddr, NULL, NULL);
-	else
-		ret = nb_ul_redundancy(hwaddr);
-
-	return ret;
-}
-
-int
-cb_destroy(timeout_t t, u32 overrun, void *data)
-{
-	(void) t;
-	(void) overrun;
-	session_t s = data;
-	session_destroy(s);
-	return 0;
-}
-
-int
-cb_dequeue(struct jsm80211_module* module, void* packet, void* data)
-{
-	(void) module;
-	(void) data;
-	tx_decoded(packet);
-	moep_frame_destroy(packet);
-	return 0;
-}
-
-void
-session_log_state()
-{
-	session_t s;
-	char *filename;
-	FILE *file;
-	int p, q;
-	double uplink, downlink;
-
-	list_for_each_entry(s, &sl, list) {
-		uplink = nb_ul_quality(session_find_remote_address(s), &p, &q),
-		downlink = nb_dl_quality(session_find_remote_address(s), NULL, NULL),
-		filename = get_log_fn(s);
-		file = fopen(filename, "w");
-		if (!file)
-			DIE("cannot open file: %s", filename);
-		fprintf(file,
-			"session: %s:%s\n"
-			"count\t%d\n"
-			"tx.data\t%.2f\n"
-			"tx.ack\t%.2f\n"
-			"rx.data\t%.2f\n"
-			"rx.ack\t%.2f\n"
-			"rx.excess_data\t%.2f\n"
-			"rx.late_data\t%.2f\n"
-			"rx.late_ack\t%.f\n"
-			"tx.redundant\t%.2f\n"
-			"redundancy\t%.2f\n"
-			"uplink\t%.2f\n"
-			"p = %d, q = %d\n"
-			"downlink\t%.2f\n"
-			"qdelay\t%.4f\n"
-			"\n",
-			ether_ntoa((const struct ether_addr *)s),
-			ether_ntoa((const struct ether_addr *)s+IEEE80211_ALEN),
-			s->state.count,
-			(double)s->state.tx.data/(double)s->state.count,
-			(double)s->state.tx.ack/(double)s->state.count,
-			(double)s->state.rx.data/(double)s->state.count,
-			(double)s->state.rx.ack/(double)s->state.count,
-			(double)s->state.rx.excess_data/(double)s->state.count,
-			(double)s->state.rx.late_data/(double)s->state.count,
-			(double)s->state.rx.late_ack/(double)s->state.count,
-			(double)s->state.tx.redundant/(double)s->state.count,
-			session_redundancy(s),
-			uplink,
-			p, q,
-			downlink,
-                        qdelay_get());
-		fclose(file);
-
-		if(s->jsm_module)
-			jsm80211_log_state(s->jsm_module);
-	}
-}
-
-int
-session_remaining_space(const session_t s)
-{
-	return generation_remaining_space(&s->gl);
-}
-
-int
-session_min_remaining_space()
-{
-	session_t s;
-	int ret = GENERATION_SIZE;
-
-	list_for_each_entry(s, &sl, list)
-		ret = min(session_remaining_space(s), ret);
-
-	return ret;
-}
-

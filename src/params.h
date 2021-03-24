@@ -3,6 +3,8 @@
 
 #include <sys/types.h>
 
+#include <moep/types.h>
+#include <moep/dev.h>
 #include <moepgf/moepgf.h>
 #include "global.h"
 

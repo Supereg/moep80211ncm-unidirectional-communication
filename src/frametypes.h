@@ -53,7 +53,7 @@ struct ncm_hdr_coded {
 	u16 lseq;
 	/// One `generation_feedback` for every generation in our generation list.
 	/// Meaning the array equals to `window_size`.
-	struct generation_feedback fb[0];
+	// TODO removed: struct generation_feedback fb[0];
 } __attribute__((packed));
 
 struct ncm_hdr_bcast {

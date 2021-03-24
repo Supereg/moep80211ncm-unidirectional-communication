@@ -88,8 +88,8 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-TESTS = check_simulator$(EXEEXT)
-check_PROGRAMS = check_simulator$(EXEEXT)
+TESTS = check_session$(EXEEXT)
+check_PROGRAMS = check_session$(EXEEXT)
 subdir = tests
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -100,23 +100,22 @@ DIST_COMMON = $(srcdir)/Makefile.am $(noinst_HEADERS) \
 mkinstalldirs = $(install_sh) -d
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
-am_check_simulator_OBJECTS = check_simulator-check_main.$(OBJEXT) \
-	check_simulator-check_utils.$(OBJEXT) \
-	check_simulator-check_generation.$(OBJEXT) \
-	check_simulator-check_session.$(OBJEXT)
-check_simulator_OBJECTS = $(am_check_simulator_OBJECTS)
+am_check_session_OBJECTS = check_session-check_main.$(OBJEXT) \
+	check_session-check_utils.$(OBJEXT) \
+	check_session-check_generation.$(OBJEXT) \
+	check_session-check_session.$(OBJEXT)
+check_session_OBJECTS = $(am_check_session_OBJECTS)
 am__DEPENDENCIES_1 =
-check_simulator_DEPENDENCIES = $(top_builddir)/src/libsimulator.la \
+check_session_DEPENDENCIES = $(top_builddir)/src/libsession.la \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_1)
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-check_simulator_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
-	$(check_simulator_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) \
-	-o $@
+check_session_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(check_session_CFLAGS) \
+	$(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -130,12 +129,12 @@ am__v_at_ = $(am__v_at_@AM_DEFAULT_V@)
 am__v_at_0 = @
 am__v_at_1 = 
 DEFAULT_INCLUDES = -I.@am__isrc@
-depcomp = $(SHELL) $(top_srcdir)/../depcomp
+depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__maybe_remake_depfiles = depfiles
-am__depfiles_remade = ./$(DEPDIR)/check_simulator-check_generation.Po \
-	./$(DEPDIR)/check_simulator-check_main.Po \
-	./$(DEPDIR)/check_simulator-check_session.Po \
-	./$(DEPDIR)/check_simulator-check_utils.Po
+am__depfiles_remade = ./$(DEPDIR)/check_session-check_generation.Po \
+	./$(DEPDIR)/check_session-check_main.Po \
+	./$(DEPDIR)/check_session-check_session.Po \
+	./$(DEPDIR)/check_session-check_utils.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -155,8 +154,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(check_simulator_SOURCES)
-DIST_SOURCES = $(check_simulator_SOURCES)
+SOURCES = $(check_session_SOURCES)
+DIST_SOURCES = $(check_session_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -368,7 +367,7 @@ RECHECK_LOGS = $(TEST_LOGS)
 AM_RECURSIVE_TARGETS = check recheck
 TEST_SUITE_LOG = test-suite.log
 TEST_EXTENSIONS = @EXEEXT@ .test
-LOG_DRIVER = $(SHELL) $(top_srcdir)/../test-driver
+LOG_DRIVER = $(SHELL) $(top_srcdir)/test-driver
 LOG_COMPILE = $(LOG_COMPILER) $(AM_LOG_FLAGS) $(LOG_FLAGS)
 am__set_b = \
   case '$@' in \
@@ -383,11 +382,11 @@ am__set_b = \
 am__test_logs1 = $(TESTS:=.log)
 am__test_logs2 = $(am__test_logs1:@EXEEXT@.log=.log)
 TEST_LOGS = $(am__test_logs2:.test.log=.log)
-TEST_LOG_DRIVER = $(SHELL) $(top_srcdir)/../test-driver
+TEST_LOG_DRIVER = $(SHELL) $(top_srcdir)/test-driver
 TEST_LOG_COMPILE = $(TEST_LOG_COMPILER) $(AM_TEST_LOG_FLAGS) \
 	$(TEST_LOG_FLAGS)
-am__DIST_COMMON = $(srcdir)/Makefile.in $(top_srcdir)/../depcomp \
-	$(top_srcdir)/../test-driver
+am__DIST_COMMON = $(srcdir)/Makefile.in $(top_srcdir)/depcomp \
+	$(top_srcdir)/test-driver
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
@@ -434,6 +433,8 @@ INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LCOV = @LCOV@
 LD = @LD@
 LDFLAGS = @LDFLAGS@
+LIBJSM_CFLAGS = @LIBJSM_CFLAGS@
+LIBJSM_LIBS = @LIBJSM_LIBS@
 LIBMOEPCOMMON_CFLAGS = @LIBMOEPCOMMON_CFLAGS@
 LIBMOEPGF_CFLAGS = @LIBMOEPGF_CFLAGS@
 LIBMOEPGF_LIBS = @LIBMOEPGF_LIBS@
@@ -522,34 +523,34 @@ runstatedir = @runstatedir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
+subdirs = @subdirs@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-check_simulator_SOURCES = check_main.c check_utils.c check_utils.h \
-	check_generation.c check_session.c check_simulator.h \
-	\$(top_builddir)/src/generation.h \
-	\$(top_builddir)/src/session.h
-check_simulator_CFLAGS = @CHECK_CFLAGS@
-check_simulator_CPPFLAGS = $(LIBMOEP_CFLAGS) $(LIBMOEPCOMMON_CFLAGS) \
-	$(LIBMOEPGF_CFLAGS) $(LIBMOEPRLNC_CFLAGS)
-check_simulator_LDADD = $(top_builddir)/src/libsimulator.la \
-	@CHECK_LIBS@ $(LIBMOEP_LIBS) $(LIBMOEPGF_LIBS) \
-	$(LIBMOEPRLNC_LIBS)
-noinst_HEADERS = ../../libmoepcommon/include/moepcommon/benchmark.h \
-	../../libmoepcommon/include/moepcommon/list.h \
-	../../libmoepcommon/include/moepcommon/list_sort.h \
-	../../libmoepcommon/include/moepcommon/timeout.h \
-	../../libmoepcommon/include/moepcommon/types.h \
-	../../libmoepcommon/include/moepcommon/util.h \
-	../../libmoepcommon/include/moepcommon/util/alignment.h \
-	../../libmoepcommon/include/moepcommon/util/assertion.h \
-	../../libmoepcommon/include/moepcommon/util/hexdump.h \
-	../../libmoepcommon/include/moepcommon/util/log.h \
-	../../libmoepcommon/include/moepcommon/util/mac.h \
-	../../libmoepcommon/include/moepcommon/util/maths.h \
-	../../libmoepcommon/include/moepcommon/util/timespec.h
+check_session_SOURCES = check_main.c check_utils.c check_utils.h \
+	check_generation.c check_session.c check_suites.h
+check_session_CFLAGS = @CHECK_CFLAGS@ $(CODE_COVERAGE_CFLAGS)
+check_session_CPPFLAGS = $(LIBMOEP_CFLAGS) $(LIBMOEPCOMMON_CFLAGS) \
+	$(LIBMOEPGF_CFLAGS) $(LIBMOEPRLNC_CFLAGS) \
+	$(CODE_COVERAGE_CPPFLAGS)
+check_session_LDADD = $(top_builddir)/src/libsession.la @CHECK_LIBS@ \
+	$(LIBMOEP_LIBS) $(LIBMOEPGF_LIBS) $(LIBMOEPRLNC_LIBS) \
+	$(CODE_COVERAGE_LIBS)
+noinst_HEADERS = ../libmoepcommon/include/moepcommon/benchmark.h \
+	../libmoepcommon/include/moepcommon/list.h \
+	../libmoepcommon/include/moepcommon/list_sort.h \
+	../libmoepcommon/include/moepcommon/timeout.h \
+	../libmoepcommon/include/moepcommon/types.h \
+	../libmoepcommon/include/moepcommon/util.h \
+	../libmoepcommon/include/moepcommon/util/alignment.h \
+	../libmoepcommon/include/moepcommon/util/assertion.h \
+	../libmoepcommon/include/moepcommon/util/hexdump.h \
+	../libmoepcommon/include/moepcommon/util/log.h \
+	../libmoepcommon/include/moepcommon/util/mac.h \
+	../libmoepcommon/include/moepcommon/util/maths.h \
+	../libmoepcommon/include/moepcommon/util/timespec.h
 all: all-am
 
 .SUFFIXES:
@@ -593,9 +594,9 @@ clean-checkPROGRAMS:
 	echo " rm -f" $$list; \
 	rm -f $$list
 
-check_simulator$(EXEEXT): $(check_simulator_OBJECTS) $(check_simulator_DEPENDENCIES) $(EXTRA_check_simulator_DEPENDENCIES) 
-	@rm -f check_simulator$(EXEEXT)
-	$(AM_V_CCLD)$(check_simulator_LINK) $(check_simulator_OBJECTS) $(check_simulator_LDADD) $(LIBS)
+check_session$(EXEEXT): $(check_session_OBJECTS) $(check_session_DEPENDENCIES) $(EXTRA_check_session_DEPENDENCIES) 
+	@rm -f check_session$(EXEEXT)
+	$(AM_V_CCLD)$(check_session_LINK) $(check_session_OBJECTS) $(check_session_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -603,10 +604,10 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_generation.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_main.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_session.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_simulator-check_utils.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_session-check_generation.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_session-check_main.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_session-check_session.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_session-check_utils.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
 	@$(MKDIR_P) $(@D)
@@ -638,61 +639,61 @@ am--depfiles: $(am__depfiles_remade)
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
-check_simulator-check_main.o: check_main.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_main.o -MD -MP -MF $(DEPDIR)/check_simulator-check_main.Tpo -c -o check_simulator-check_main.o `test -f 'check_main.c' || echo '$(srcdir)/'`check_main.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_main.Tpo $(DEPDIR)/check_simulator-check_main.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_main.c' object='check_simulator-check_main.o' libtool=no @AMDEPBACKSLASH@
+check_session-check_main.o: check_main.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_main.o -MD -MP -MF $(DEPDIR)/check_session-check_main.Tpo -c -o check_session-check_main.o `test -f 'check_main.c' || echo '$(srcdir)/'`check_main.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_main.Tpo $(DEPDIR)/check_session-check_main.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_main.c' object='check_session-check_main.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_main.o `test -f 'check_main.c' || echo '$(srcdir)/'`check_main.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_main.o `test -f 'check_main.c' || echo '$(srcdir)/'`check_main.c
 
-check_simulator-check_main.obj: check_main.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_main.obj -MD -MP -MF $(DEPDIR)/check_simulator-check_main.Tpo -c -o check_simulator-check_main.obj `if test -f 'check_main.c'; then $(CYGPATH_W) 'check_main.c'; else $(CYGPATH_W) '$(srcdir)/check_main.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_main.Tpo $(DEPDIR)/check_simulator-check_main.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_main.c' object='check_simulator-check_main.obj' libtool=no @AMDEPBACKSLASH@
+check_session-check_main.obj: check_main.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_main.obj -MD -MP -MF $(DEPDIR)/check_session-check_main.Tpo -c -o check_session-check_main.obj `if test -f 'check_main.c'; then $(CYGPATH_W) 'check_main.c'; else $(CYGPATH_W) '$(srcdir)/check_main.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_main.Tpo $(DEPDIR)/check_session-check_main.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_main.c' object='check_session-check_main.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_main.obj `if test -f 'check_main.c'; then $(CYGPATH_W) 'check_main.c'; else $(CYGPATH_W) '$(srcdir)/check_main.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_main.obj `if test -f 'check_main.c'; then $(CYGPATH_W) 'check_main.c'; else $(CYGPATH_W) '$(srcdir)/check_main.c'; fi`
 
-check_simulator-check_utils.o: check_utils.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_utils.o -MD -MP -MF $(DEPDIR)/check_simulator-check_utils.Tpo -c -o check_simulator-check_utils.o `test -f 'check_utils.c' || echo '$(srcdir)/'`check_utils.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_utils.Tpo $(DEPDIR)/check_simulator-check_utils.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_utils.c' object='check_simulator-check_utils.o' libtool=no @AMDEPBACKSLASH@
+check_session-check_utils.o: check_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_utils.o -MD -MP -MF $(DEPDIR)/check_session-check_utils.Tpo -c -o check_session-check_utils.o `test -f 'check_utils.c' || echo '$(srcdir)/'`check_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_utils.Tpo $(DEPDIR)/check_session-check_utils.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_utils.c' object='check_session-check_utils.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_utils.o `test -f 'check_utils.c' || echo '$(srcdir)/'`check_utils.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_utils.o `test -f 'check_utils.c' || echo '$(srcdir)/'`check_utils.c
 
-check_simulator-check_utils.obj: check_utils.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_utils.obj -MD -MP -MF $(DEPDIR)/check_simulator-check_utils.Tpo -c -o check_simulator-check_utils.obj `if test -f 'check_utils.c'; then $(CYGPATH_W) 'check_utils.c'; else $(CYGPATH_W) '$(srcdir)/check_utils.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_utils.Tpo $(DEPDIR)/check_simulator-check_utils.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_utils.c' object='check_simulator-check_utils.obj' libtool=no @AMDEPBACKSLASH@
+check_session-check_utils.obj: check_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_utils.obj -MD -MP -MF $(DEPDIR)/check_session-check_utils.Tpo -c -o check_session-check_utils.obj `if test -f 'check_utils.c'; then $(CYGPATH_W) 'check_utils.c'; else $(CYGPATH_W) '$(srcdir)/check_utils.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_utils.Tpo $(DEPDIR)/check_session-check_utils.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_utils.c' object='check_session-check_utils.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_utils.obj `if test -f 'check_utils.c'; then $(CYGPATH_W) 'check_utils.c'; else $(CYGPATH_W) '$(srcdir)/check_utils.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_utils.obj `if test -f 'check_utils.c'; then $(CYGPATH_W) 'check_utils.c'; else $(CYGPATH_W) '$(srcdir)/check_utils.c'; fi`
 
-check_simulator-check_generation.o: check_generation.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_generation.o -MD -MP -MF $(DEPDIR)/check_simulator-check_generation.Tpo -c -o check_simulator-check_generation.o `test -f 'check_generation.c' || echo '$(srcdir)/'`check_generation.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_generation.Tpo $(DEPDIR)/check_simulator-check_generation.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_generation.c' object='check_simulator-check_generation.o' libtool=no @AMDEPBACKSLASH@
+check_session-check_generation.o: check_generation.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_generation.o -MD -MP -MF $(DEPDIR)/check_session-check_generation.Tpo -c -o check_session-check_generation.o `test -f 'check_generation.c' || echo '$(srcdir)/'`check_generation.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_generation.Tpo $(DEPDIR)/check_session-check_generation.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_generation.c' object='check_session-check_generation.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_generation.o `test -f 'check_generation.c' || echo '$(srcdir)/'`check_generation.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_generation.o `test -f 'check_generation.c' || echo '$(srcdir)/'`check_generation.c
 
-check_simulator-check_generation.obj: check_generation.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_generation.obj -MD -MP -MF $(DEPDIR)/check_simulator-check_generation.Tpo -c -o check_simulator-check_generation.obj `if test -f 'check_generation.c'; then $(CYGPATH_W) 'check_generation.c'; else $(CYGPATH_W) '$(srcdir)/check_generation.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_generation.Tpo $(DEPDIR)/check_simulator-check_generation.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_generation.c' object='check_simulator-check_generation.obj' libtool=no @AMDEPBACKSLASH@
+check_session-check_generation.obj: check_generation.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_generation.obj -MD -MP -MF $(DEPDIR)/check_session-check_generation.Tpo -c -o check_session-check_generation.obj `if test -f 'check_generation.c'; then $(CYGPATH_W) 'check_generation.c'; else $(CYGPATH_W) '$(srcdir)/check_generation.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_generation.Tpo $(DEPDIR)/check_session-check_generation.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_generation.c' object='check_session-check_generation.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_generation.obj `if test -f 'check_generation.c'; then $(CYGPATH_W) 'check_generation.c'; else $(CYGPATH_W) '$(srcdir)/check_generation.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_generation.obj `if test -f 'check_generation.c'; then $(CYGPATH_W) 'check_generation.c'; else $(CYGPATH_W) '$(srcdir)/check_generation.c'; fi`
 
-check_simulator-check_session.o: check_session.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_session.o -MD -MP -MF $(DEPDIR)/check_simulator-check_session.Tpo -c -o check_simulator-check_session.o `test -f 'check_session.c' || echo '$(srcdir)/'`check_session.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_session.Tpo $(DEPDIR)/check_simulator-check_session.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_session.c' object='check_simulator-check_session.o' libtool=no @AMDEPBACKSLASH@
+check_session-check_session.o: check_session.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_session.o -MD -MP -MF $(DEPDIR)/check_session-check_session.Tpo -c -o check_session-check_session.o `test -f 'check_session.c' || echo '$(srcdir)/'`check_session.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_session.Tpo $(DEPDIR)/check_session-check_session.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_session.c' object='check_session-check_session.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_session.o `test -f 'check_session.c' || echo '$(srcdir)/'`check_session.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_session.o `test -f 'check_session.c' || echo '$(srcdir)/'`check_session.c
 
-check_simulator-check_session.obj: check_session.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -MT check_simulator-check_session.obj -MD -MP -MF $(DEPDIR)/check_simulator-check_session.Tpo -c -o check_simulator-check_session.obj `if test -f 'check_session.c'; then $(CYGPATH_W) 'check_session.c'; else $(CYGPATH_W) '$(srcdir)/check_session.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_simulator-check_session.Tpo $(DEPDIR)/check_simulator-check_session.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_session.c' object='check_simulator-check_session.obj' libtool=no @AMDEPBACKSLASH@
+check_session-check_session.obj: check_session.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -MT check_session-check_session.obj -MD -MP -MF $(DEPDIR)/check_session-check_session.Tpo -c -o check_session-check_session.obj `if test -f 'check_session.c'; then $(CYGPATH_W) 'check_session.c'; else $(CYGPATH_W) '$(srcdir)/check_session.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/check_session-check_session.Tpo $(DEPDIR)/check_session-check_session.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='check_session.c' object='check_session-check_session.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_simulator_CPPFLAGS) $(CPPFLAGS) $(check_simulator_CFLAGS) $(CFLAGS) -c -o check_simulator-check_session.obj `if test -f 'check_session.c'; then $(CYGPATH_W) 'check_session.c'; else $(CYGPATH_W) '$(srcdir)/check_session.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_session_CPPFLAGS) $(CPPFLAGS) $(check_session_CFLAGS) $(CFLAGS) -c -o check_session-check_session.obj `if test -f 'check_session.c'; then $(CYGPATH_W) 'check_session.c'; else $(CYGPATH_W) '$(srcdir)/check_session.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -893,9 +894,9 @@ recheck: all $(check_PROGRAMS)
 	        am__force_recheck=am--force-recheck \
 	        TEST_LOGS="$$log_list"; \
 	exit $$?
-check_simulator.log: check_simulator$(EXEEXT)
-	@p='check_simulator$(EXEEXT)'; \
-	b='check_simulator'; \
+check_session.log: check_session$(EXEEXT)
+	@p='check_session$(EXEEXT)'; \
+	b='check_session'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
@@ -993,10 +994,10 @@ clean-am: clean-checkPROGRAMS clean-generic clean-libtool \
 	mostlyclean-am
 
 distclean: distclean-am
-		-rm -f ./$(DEPDIR)/check_simulator-check_generation.Po
-	-rm -f ./$(DEPDIR)/check_simulator-check_main.Po
-	-rm -f ./$(DEPDIR)/check_simulator-check_session.Po
-	-rm -f ./$(DEPDIR)/check_simulator-check_utils.Po
+		-rm -f ./$(DEPDIR)/check_session-check_generation.Po
+	-rm -f ./$(DEPDIR)/check_session-check_main.Po
+	-rm -f ./$(DEPDIR)/check_session-check_session.Po
+	-rm -f ./$(DEPDIR)/check_session-check_utils.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-tags
@@ -1042,10 +1043,10 @@ install-ps-am:
 installcheck-am:
 
 maintainer-clean: maintainer-clean-am
-		-rm -f ./$(DEPDIR)/check_simulator-check_generation.Po
-	-rm -f ./$(DEPDIR)/check_simulator-check_main.Po
-	-rm -f ./$(DEPDIR)/check_simulator-check_session.Po
-	-rm -f ./$(DEPDIR)/check_simulator-check_utils.Po
+		-rm -f ./$(DEPDIR)/check_session-check_generation.Po
+	-rm -f ./$(DEPDIR)/check_session-check_main.Po
+	-rm -f ./$(DEPDIR)/check_session-check_session.Po
+	-rm -f ./$(DEPDIR)/check_session-check_utils.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

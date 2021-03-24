@@ -1,5 +1,0 @@
-
-@CODE_COVERAGE_RULES@
-CODE_COVERAGE_IGNORE_PATTERN="tests/*"
-
-SUBDIRS = src . tests
