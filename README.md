@@ -6,6 +6,10 @@
 The ncm daemon creates a coded mesh network - at least, it will do so in the
 future.
 
+## Project Notes
+
+
+
 
 ## Dependencies
 

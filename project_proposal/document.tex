@@ -21,7 +21,6 @@
     \\
 
     The \ilc{rlnc} library can presumably be used as is, by simply ignoring the reverse direction of the coding matrix.
-    Optionally we might consider taking steps to make use of the full coding matrix.
 
     Session and generation management on the other hand is to be reengineered from scratch.
     The rewrite will include designing a revised acknowledgment scheme to fit the unidirectional coding scheme.
@@ -42,7 +41,9 @@
             replacing the current bidirectional implementation.
 
             Required functionality: Supports transmission of an ICMP Echo Request/Response.
-        \item Optional: Reengineer the rlnc instead of ignoring the reverse direction of the coding matrix.
+        \item Optional: Reengineer the rlnc instead of ignoring the reverse direction of the coding matrix.\\
+        \textit{Note: While working on the project, it was discovered, that our initial understanding of the rlnc
+        library was off and actually no changes were required.}
         \item Final version supporting full functionality as the current bidirectional version.
         \item Final presentation.
     \end{enumerate}
