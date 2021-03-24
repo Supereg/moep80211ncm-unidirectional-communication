@@ -137,12 +137,15 @@ void session_log_state(session_subsystem_context_t* context) {
         session_id = (u8 *) &pos->session_id;
         filename = get_log_fn(pos);
         file = fopen(filename, "a");
+        if (!file)
+			DIE("cannot open file: %s", filename);
         fprintf(file, "%lu,", (unsigned long) time(NULL));
         for (i = 0; i < 12; i++) {
             fprintf(file, "%02x", session_id[i]);
         }
         fprintf(file, ",%d,", pos->ctr.data_ack);
         fprintf(file, "%d\n", pos->ctr.redundant);
+        fclose(file);
     }
 }
 
