@@ -538,19 +538,19 @@ check_session_CPPFLAGS = $(LIBMOEP_CFLAGS) $(LIBMOEPCOMMON_CFLAGS) \
 check_session_LDADD = $(top_builddir)/src/libsession.la @CHECK_LIBS@ \
 	$(LIBMOEP_LIBS) $(LIBMOEPGF_LIBS) $(LIBMOEPRLNC_LIBS) \
 	$(CODE_COVERAGE_LIBS)
-noinst_HEADERS = ../../libmoepcommon/include/moepcommon/benchmark.h \
-	../../libmoepcommon/include/moepcommon/list.h \
-	../../libmoepcommon/include/moepcommon/list_sort.h \
-	../../libmoepcommon/include/moepcommon/timeout.h \
-	../../libmoepcommon/include/moepcommon/types.h \
-	../../libmoepcommon/include/moepcommon/util.h \
-	../../libmoepcommon/include/moepcommon/util/alignment.h \
-	../../libmoepcommon/include/moepcommon/util/assertion.h \
-	../../libmoepcommon/include/moepcommon/util/hexdump.h \
-	../../libmoepcommon/include/moepcommon/util/log.h \
-	../../libmoepcommon/include/moepcommon/util/mac.h \
-	../../libmoepcommon/include/moepcommon/util/maths.h \
-	../../libmoepcommon/include/moepcommon/util/timespec.h
+noinst_HEADERS = ../libmoepcommon/include/moepcommon/benchmark.h \
+	../libmoepcommon/include/moepcommon/list.h \
+	../libmoepcommon/include/moepcommon/list_sort.h \
+	../libmoepcommon/include/moepcommon/timeout.h \
+	../libmoepcommon/include/moepcommon/types.h \
+	../libmoepcommon/include/moepcommon/util.h \
+	../libmoepcommon/include/moepcommon/util/alignment.h \
+	../libmoepcommon/include/moepcommon/util/assertion.h \
+	../libmoepcommon/include/moepcommon/util/hexdump.h \
+	../libmoepcommon/include/moepcommon/util/log.h \
+	../libmoepcommon/include/moepcommon/util/mac.h \
+	../libmoepcommon/include/moepcommon/util/maths.h \
+	../libmoepcommon/include/moepcommon/util/timespec.h
 all: all-am
 
 .SUFFIXES:
