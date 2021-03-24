@@ -1,5 +1,8 @@
 
-AM_CFLAGS = -O2 -Wall
+# Previously those were specified using AM_CFLAGS,
+# but we require that CODE_COVERAGE_CFLAGS comes second
+# in order to override compiler optimization flags.
+DEFAULT_CFLAGS = -O2 -Wall
 
 @CODE_COVERAGE_RULES@
 
@@ -17,7 +20,7 @@ libsession_la_SOURCES += session.h
 libsession_la_SOURCES += global.h
 libsession_la_SOURCES += params.h
 
-libsession_la_CFLAGS  = $(CODE_COVERAGE_CFLAGS)
+libsession_la_CFLAGS  = $(DEFAULT_CFLAGS) $(CODE_COVERAGE_CFLAGS)
 
 libsession_la_CPPFLAGS  = $(LIBMOEP_CFLAGS)
 libsession_la_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)
@@ -50,6 +53,8 @@ __top_builddir__ncm_SOURCES += ralqe.c
 __top_builddir__ncm_SOURCES += ralqe.h
 __top_builddir__ncm_SOURCES += qdelay.c
 __top_builddir__ncm_SOURCES += qdelay.h
+
+__top_builddir__ncm_CFLAGS  = $(DEFAULT_CFLAGS)
 
 __top_builddir__ncm_CPPFLAGS  = $(LIBMOEP_CFLAGS)
 __top_builddir__ncm_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)

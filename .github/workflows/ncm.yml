@@ -57,7 +57,7 @@ jobs:
         working-directory: ${{ env.build-directory }}
 
       - name: Test Sessions
-        run: make check || cat tests/test-suite.log
+        run: make check || cat test-suite.log
         # Don't run 'make check' in root directory, as e.g. libmoepgf has some long running benchmark tests
         working-directory: ${{ env.build-directory }}/tests
 
@@ -73,7 +73,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ./build/ncm-coverage.info
 
-      - name: Valgrind NCM Simulator
+      - name: Valgrind NCM Session
         if: matrix.configuration == 'debug' # Only use valgrind with compiler optimizations disabled
         # CK_FORK=no so we don't report about "still reachable" of check framework: https://libcheck.github.io/check/doc/check_html/check_4.html#Finding-Memory-Leaks
         run: CK_FORK=no valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 ./tests/check_session

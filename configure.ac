@@ -43,7 +43,10 @@ AC_SUBST(LIBJSM_LIBS)
 
 AX_CODE_COVERAGE
 AS_IF([test x$enable_code_coverage != xno], [
-	AC_SEARCH_LIBS(gcov_open, gcov, [LDFLAGS="$LDFLAGS $CODE_COVERAGE_LDFLAGS"])
+    # autoconf default cflags are "-g -O2" which overrides our -O0 for code coverage testing
+    # This is a workaround to override the default -02
+	CFLAGS="$CFLAGS -O0"
+	AC_SEARCH_LIBS(gcov_open, gcov)
 ])
 
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])

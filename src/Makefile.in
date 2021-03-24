@@ -156,6 +156,10 @@ __top_builddir__ncm_OBJECTS = $(am___top_builddir__ncm_OBJECTS)
 __top_builddir__ncm_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) libsession.la
+__top_builddir__ncm_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(__top_builddir__ncm_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
 am__dirstamp = $(am__leading_dot)dirstamp
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
@@ -370,13 +374,21 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -O2 -Wall
 
-# TODO document
+# Previously those were specified using AM_CFLAGS,
+# but we require that CODE_COVERAGE_CFLAGS comes second
+# in order to override compiler optimization flags.
+DEFAULT_CFLAGS = -O2 -Wall
+
+# The session code is used withing the ncm module
+# as well as the unit test binary.
+# Thus we compile a libtools library containing
+# the session submodule, which is then linked to
+# both the ncm module as well as the unit tests
 lib_LTLIBRARIES = libsession.la
 libsession_la_SOURCES = generation.c generation.h session.c session.h \
 	global.h params.h
-libsession_la_CFLAGS = $(CODE_COVERAGE_CFLAGS)
+libsession_la_CFLAGS = $(DEFAULT_CFLAGS) $(CODE_COVERAGE_CFLAGS)
 libsession_la_CPPFLAGS = $(LIBMOEP_CFLAGS) $(LIBMOEPCOMMON_CFLAGS) \
 	$(LIBMOEPGF_CFLAGS) $(LIBMOEPRLNC_CFLAGS) \
 	$(CODE_COVERAGE_CPPFLAGS)
@@ -386,6 +398,7 @@ __top_builddir__ncm_SOURCES = bcast.c bcast.h daemonize.c daemonize.h \
 	frametypes.h global.h ncm.c ncm.h neighbor.c neighbor.h \
 	linkstate.c linkstate.h params.h ralqe.c ralqe.h qdelay.c \
 	qdelay.h
+__top_builddir__ncm_CFLAGS = $(DEFAULT_CFLAGS)
 __top_builddir__ncm_CPPFLAGS = $(LIBMOEP_CFLAGS) \
 	$(LIBMOEPCOMMON_CFLAGS) $(LIBMOEPGF_CFLAGS) \
 	$(LIBMOEPRLNC_CFLAGS) $(LIBJSM_CFLAGS)
@@ -530,7 +543,7 @@ $(top_builddir)/$(am__dirstamp):
 
 $(top_builddir)/ncm$(EXEEXT): $(__top_builddir__ncm_OBJECTS) $(__top_builddir__ncm_DEPENDENCIES) $(EXTRA___top_builddir__ncm_DEPENDENCIES) $(top_builddir)/$(am__dirstamp)
 	@rm -f $(top_builddir)/ncm$(EXEEXT)
-	$(AM_V_CCLD)$(LINK) $(__top_builddir__ncm_OBJECTS) $(__top_builddir__ncm_LDADD) $(LIBS)
+	$(AM_V_CCLD)$(__top_builddir__ncm_LINK) $(__top_builddir__ncm_OBJECTS) $(__top_builddir__ncm_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -593,102 +606,102 @@ libsession_la-session.lo: session.c
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libsession_la_CPPFLAGS) $(CPPFLAGS) $(libsession_la_CFLAGS) $(CFLAGS) -c -o libsession_la-session.lo `test -f 'session.c' || echo '$(srcdir)/'`session.c
 
 __top_builddir__ncm-bcast.o: bcast.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-bcast.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-bcast.Tpo -c -o __top_builddir__ncm-bcast.o `test -f 'bcast.c' || echo '$(srcdir)/'`bcast.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-bcast.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-bcast.Tpo -c -o __top_builddir__ncm-bcast.o `test -f 'bcast.c' || echo '$(srcdir)/'`bcast.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-bcast.Tpo $(DEPDIR)/__top_builddir__ncm-bcast.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='bcast.c' object='__top_builddir__ncm-bcast.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-bcast.o `test -f 'bcast.c' || echo '$(srcdir)/'`bcast.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-bcast.o `test -f 'bcast.c' || echo '$(srcdir)/'`bcast.c
 
 __top_builddir__ncm-bcast.obj: bcast.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-bcast.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-bcast.Tpo -c -o __top_builddir__ncm-bcast.obj `if test -f 'bcast.c'; then $(CYGPATH_W) 'bcast.c'; else $(CYGPATH_W) '$(srcdir)/bcast.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-bcast.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-bcast.Tpo -c -o __top_builddir__ncm-bcast.obj `if test -f 'bcast.c'; then $(CYGPATH_W) 'bcast.c'; else $(CYGPATH_W) '$(srcdir)/bcast.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-bcast.Tpo $(DEPDIR)/__top_builddir__ncm-bcast.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='bcast.c' object='__top_builddir__ncm-bcast.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-bcast.obj `if test -f 'bcast.c'; then $(CYGPATH_W) 'bcast.c'; else $(CYGPATH_W) '$(srcdir)/bcast.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-bcast.obj `if test -f 'bcast.c'; then $(CYGPATH_W) 'bcast.c'; else $(CYGPATH_W) '$(srcdir)/bcast.c'; fi`
 
 __top_builddir__ncm-daemonize.o: daemonize.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-daemonize.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-daemonize.Tpo -c -o __top_builddir__ncm-daemonize.o `test -f 'daemonize.c' || echo '$(srcdir)/'`daemonize.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-daemonize.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-daemonize.Tpo -c -o __top_builddir__ncm-daemonize.o `test -f 'daemonize.c' || echo '$(srcdir)/'`daemonize.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-daemonize.Tpo $(DEPDIR)/__top_builddir__ncm-daemonize.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='daemonize.c' object='__top_builddir__ncm-daemonize.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-daemonize.o `test -f 'daemonize.c' || echo '$(srcdir)/'`daemonize.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-daemonize.o `test -f 'daemonize.c' || echo '$(srcdir)/'`daemonize.c
 
 __top_builddir__ncm-daemonize.obj: daemonize.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-daemonize.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-daemonize.Tpo -c -o __top_builddir__ncm-daemonize.obj `if test -f 'daemonize.c'; then $(CYGPATH_W) 'daemonize.c'; else $(CYGPATH_W) '$(srcdir)/daemonize.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-daemonize.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-daemonize.Tpo -c -o __top_builddir__ncm-daemonize.obj `if test -f 'daemonize.c'; then $(CYGPATH_W) 'daemonize.c'; else $(CYGPATH_W) '$(srcdir)/daemonize.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-daemonize.Tpo $(DEPDIR)/__top_builddir__ncm-daemonize.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='daemonize.c' object='__top_builddir__ncm-daemonize.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-daemonize.obj `if test -f 'daemonize.c'; then $(CYGPATH_W) 'daemonize.c'; else $(CYGPATH_W) '$(srcdir)/daemonize.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-daemonize.obj `if test -f 'daemonize.c'; then $(CYGPATH_W) 'daemonize.c'; else $(CYGPATH_W) '$(srcdir)/daemonize.c'; fi`
 
 __top_builddir__ncm-ncm.o: ncm.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ncm.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ncm.Tpo -c -o __top_builddir__ncm-ncm.o `test -f 'ncm.c' || echo '$(srcdir)/'`ncm.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ncm.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ncm.Tpo -c -o __top_builddir__ncm-ncm.o `test -f 'ncm.c' || echo '$(srcdir)/'`ncm.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-ncm.Tpo $(DEPDIR)/__top_builddir__ncm-ncm.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='ncm.c' object='__top_builddir__ncm-ncm.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ncm.o `test -f 'ncm.c' || echo '$(srcdir)/'`ncm.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ncm.o `test -f 'ncm.c' || echo '$(srcdir)/'`ncm.c
 
 __top_builddir__ncm-ncm.obj: ncm.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ncm.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ncm.Tpo -c -o __top_builddir__ncm-ncm.obj `if test -f 'ncm.c'; then $(CYGPATH_W) 'ncm.c'; else $(CYGPATH_W) '$(srcdir)/ncm.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ncm.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ncm.Tpo -c -o __top_builddir__ncm-ncm.obj `if test -f 'ncm.c'; then $(CYGPATH_W) 'ncm.c'; else $(CYGPATH_W) '$(srcdir)/ncm.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-ncm.Tpo $(DEPDIR)/__top_builddir__ncm-ncm.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='ncm.c' object='__top_builddir__ncm-ncm.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ncm.obj `if test -f 'ncm.c'; then $(CYGPATH_W) 'ncm.c'; else $(CYGPATH_W) '$(srcdir)/ncm.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ncm.obj `if test -f 'ncm.c'; then $(CYGPATH_W) 'ncm.c'; else $(CYGPATH_W) '$(srcdir)/ncm.c'; fi`
 
 __top_builddir__ncm-neighbor.o: neighbor.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-neighbor.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-neighbor.Tpo -c -o __top_builddir__ncm-neighbor.o `test -f 'neighbor.c' || echo '$(srcdir)/'`neighbor.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-neighbor.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-neighbor.Tpo -c -o __top_builddir__ncm-neighbor.o `test -f 'neighbor.c' || echo '$(srcdir)/'`neighbor.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-neighbor.Tpo $(DEPDIR)/__top_builddir__ncm-neighbor.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='neighbor.c' object='__top_builddir__ncm-neighbor.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-neighbor.o `test -f 'neighbor.c' || echo '$(srcdir)/'`neighbor.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-neighbor.o `test -f 'neighbor.c' || echo '$(srcdir)/'`neighbor.c
 
 __top_builddir__ncm-neighbor.obj: neighbor.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-neighbor.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-neighbor.Tpo -c -o __top_builddir__ncm-neighbor.obj `if test -f 'neighbor.c'; then $(CYGPATH_W) 'neighbor.c'; else $(CYGPATH_W) '$(srcdir)/neighbor.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-neighbor.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-neighbor.Tpo -c -o __top_builddir__ncm-neighbor.obj `if test -f 'neighbor.c'; then $(CYGPATH_W) 'neighbor.c'; else $(CYGPATH_W) '$(srcdir)/neighbor.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-neighbor.Tpo $(DEPDIR)/__top_builddir__ncm-neighbor.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='neighbor.c' object='__top_builddir__ncm-neighbor.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-neighbor.obj `if test -f 'neighbor.c'; then $(CYGPATH_W) 'neighbor.c'; else $(CYGPATH_W) '$(srcdir)/neighbor.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-neighbor.obj `if test -f 'neighbor.c'; then $(CYGPATH_W) 'neighbor.c'; else $(CYGPATH_W) '$(srcdir)/neighbor.c'; fi`
 
 __top_builddir__ncm-linkstate.o: linkstate.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-linkstate.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-linkstate.Tpo -c -o __top_builddir__ncm-linkstate.o `test -f 'linkstate.c' || echo '$(srcdir)/'`linkstate.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-linkstate.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-linkstate.Tpo -c -o __top_builddir__ncm-linkstate.o `test -f 'linkstate.c' || echo '$(srcdir)/'`linkstate.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-linkstate.Tpo $(DEPDIR)/__top_builddir__ncm-linkstate.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='linkstate.c' object='__top_builddir__ncm-linkstate.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-linkstate.o `test -f 'linkstate.c' || echo '$(srcdir)/'`linkstate.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-linkstate.o `test -f 'linkstate.c' || echo '$(srcdir)/'`linkstate.c
 
 __top_builddir__ncm-linkstate.obj: linkstate.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-linkstate.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-linkstate.Tpo -c -o __top_builddir__ncm-linkstate.obj `if test -f 'linkstate.c'; then $(CYGPATH_W) 'linkstate.c'; else $(CYGPATH_W) '$(srcdir)/linkstate.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-linkstate.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-linkstate.Tpo -c -o __top_builddir__ncm-linkstate.obj `if test -f 'linkstate.c'; then $(CYGPATH_W) 'linkstate.c'; else $(CYGPATH_W) '$(srcdir)/linkstate.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-linkstate.Tpo $(DEPDIR)/__top_builddir__ncm-linkstate.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='linkstate.c' object='__top_builddir__ncm-linkstate.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-linkstate.obj `if test -f 'linkstate.c'; then $(CYGPATH_W) 'linkstate.c'; else $(CYGPATH_W) '$(srcdir)/linkstate.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-linkstate.obj `if test -f 'linkstate.c'; then $(CYGPATH_W) 'linkstate.c'; else $(CYGPATH_W) '$(srcdir)/linkstate.c'; fi`
 
 __top_builddir__ncm-ralqe.o: ralqe.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ralqe.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ralqe.Tpo -c -o __top_builddir__ncm-ralqe.o `test -f 'ralqe.c' || echo '$(srcdir)/'`ralqe.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ralqe.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ralqe.Tpo -c -o __top_builddir__ncm-ralqe.o `test -f 'ralqe.c' || echo '$(srcdir)/'`ralqe.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-ralqe.Tpo $(DEPDIR)/__top_builddir__ncm-ralqe.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='ralqe.c' object='__top_builddir__ncm-ralqe.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ralqe.o `test -f 'ralqe.c' || echo '$(srcdir)/'`ralqe.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ralqe.o `test -f 'ralqe.c' || echo '$(srcdir)/'`ralqe.c
 
 __top_builddir__ncm-ralqe.obj: ralqe.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ralqe.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ralqe.Tpo -c -o __top_builddir__ncm-ralqe.obj `if test -f 'ralqe.c'; then $(CYGPATH_W) 'ralqe.c'; else $(CYGPATH_W) '$(srcdir)/ralqe.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-ralqe.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-ralqe.Tpo -c -o __top_builddir__ncm-ralqe.obj `if test -f 'ralqe.c'; then $(CYGPATH_W) 'ralqe.c'; else $(CYGPATH_W) '$(srcdir)/ralqe.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-ralqe.Tpo $(DEPDIR)/__top_builddir__ncm-ralqe.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='ralqe.c' object='__top_builddir__ncm-ralqe.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ralqe.obj `if test -f 'ralqe.c'; then $(CYGPATH_W) 'ralqe.c'; else $(CYGPATH_W) '$(srcdir)/ralqe.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-ralqe.obj `if test -f 'ralqe.c'; then $(CYGPATH_W) 'ralqe.c'; else $(CYGPATH_W) '$(srcdir)/ralqe.c'; fi`
 
 __top_builddir__ncm-qdelay.o: qdelay.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-qdelay.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-qdelay.Tpo -c -o __top_builddir__ncm-qdelay.o `test -f 'qdelay.c' || echo '$(srcdir)/'`qdelay.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-qdelay.o -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-qdelay.Tpo -c -o __top_builddir__ncm-qdelay.o `test -f 'qdelay.c' || echo '$(srcdir)/'`qdelay.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-qdelay.Tpo $(DEPDIR)/__top_builddir__ncm-qdelay.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='qdelay.c' object='__top_builddir__ncm-qdelay.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-qdelay.o `test -f 'qdelay.c' || echo '$(srcdir)/'`qdelay.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-qdelay.o `test -f 'qdelay.c' || echo '$(srcdir)/'`qdelay.c
 
 __top_builddir__ncm-qdelay.obj: qdelay.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-qdelay.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-qdelay.Tpo -c -o __top_builddir__ncm-qdelay.obj `if test -f 'qdelay.c'; then $(CYGPATH_W) 'qdelay.c'; else $(CYGPATH_W) '$(srcdir)/qdelay.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -MT __top_builddir__ncm-qdelay.obj -MD -MP -MF $(DEPDIR)/__top_builddir__ncm-qdelay.Tpo -c -o __top_builddir__ncm-qdelay.obj `if test -f 'qdelay.c'; then $(CYGPATH_W) 'qdelay.c'; else $(CYGPATH_W) '$(srcdir)/qdelay.c'; fi`
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/__top_builddir__ncm-qdelay.Tpo $(DEPDIR)/__top_builddir__ncm-qdelay.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='qdelay.c' object='__top_builddir__ncm-qdelay.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-qdelay.obj `if test -f 'qdelay.c'; then $(CYGPATH_W) 'qdelay.c'; else $(CYGPATH_W) '$(srcdir)/qdelay.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(__top_builddir__ncm_CPPFLAGS) $(CPPFLAGS) $(__top_builddir__ncm_CFLAGS) $(CFLAGS) -c -o __top_builddir__ncm-qdelay.obj `if test -f 'qdelay.c'; then $(CYGPATH_W) 'qdelay.c'; else $(CYGPATH_W) '$(srcdir)/qdelay.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo
