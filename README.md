@@ -11,7 +11,8 @@ future.
 Objective of the project was to replace the bidirectional session management
 with a unidirectional session management. See [project_proposal](./project_proposal).
 
-The project contains a full CI setup using GitHub Actions doing 
+The project contains a full [CI setup](./.github/workflows/ncm.yml)
+using GitHub Actions doing 
 unit testing, code coverage reporting and memchecking using valgrind.
 See [Running session unit tests](#running-session-unit-tests) on how to manually 
 run unit tests and collect code coverage.
@@ -31,6 +32,9 @@ libmoep:
 
 See the libmoep README for further instructions.
 
+This project uses the `libcheck` framework for unit testing.
+Refer to [Running session unit tests](#running-session-unit-tests)
+for install instructions.
 
 If you cloned this repository without --recursive, you have to checkout the
 submodule libmoepgf:
@@ -86,6 +90,7 @@ If the unit tests fails, log output will be place in `./tests/test-suite.log`.
 Additionally, you may also call `./tests/check_session` manually to view full testing log output.
 
 **Running unit tests with code coverage reporting:**
+
 _Note: Unit tests with code coverage reporting run without any compiler optimizations._
 
 ```shell
