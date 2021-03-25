@@ -1,5 +1,14 @@
 **/build
 **.pdf
+*.o
+*.lo
+*.la
+*.log
+*.status
+*Makefile
+*.dirstamp
+*.libs
+*.deps
 
 **/*.cache
 
