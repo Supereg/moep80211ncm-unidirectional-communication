@@ -151,6 +151,7 @@ START_TEST(test_session_log) {
     ck_assert_int_gt(getline(&red1, &len1, file), 0);
     ck_assert_str_eq((red1 + 11), cmp1);
     fclose(file);
+    free(red1);
 
     session_free(created_src_session);
 
