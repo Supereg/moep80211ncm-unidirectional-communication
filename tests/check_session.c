@@ -120,6 +120,44 @@ START_TEST(test_session_creation_and_find) {
 }
 END_TEST
 
+/* ----------------------------------- Statistics Tests ----------------------------------- */
+
+START_TEST(test_session_log) {
+    session_t* session;
+    session_t* created_src_session;
+    session_t* created_dst_session;
+    session_t* created_intermediate_session;
+    session_t* tmp_session;
+    char* fn;
+    FILE* file;
+    char* cmp1 = "414141414141434343434343,0,0\n";
+    char* red1 = NULL;
+    size_t len1;
+    session_id expected_id;
+
+    memcpy(expected_id.source_address, address_src, IEEE80211_ALEN);
+    memcpy(expected_id.destination_address, address_dst, IEEE80211_ALEN);
+
+    // calling session_register on an unregistered session should create one
+    created_src_session = session_register(src_context, address_src, address_dst);
+    ck_assert_msg(created_src_session != NULL, "Failed session creation!");
+    ck_assert_int_eq(created_src_session->type, SOURCE);
+    ck_assert_mem_eq(&created_src_session->session_id, &expected_id, sizeof(session_id));
+
+    fn = session_get_log_fn(created_src_session);
+    session_log_state(src_context);
+    file = fopen(fn, "r");
+    ck_assert_ptr_ne(file, NULL);
+    ck_assert_int_gt(getline(&red1, &len1, file), 0);
+    ck_assert_str_eq((red1 + 11), cmp1);
+    fclose(file);
+
+    session_free(created_src_session);
+
+    //ck_assert_int_eq(getpid(), 2);
+}
+END_TEST
+
 /* ----------------------------------- CODING related tests ----------------------------------- */
 
 START_TEST(test_session_coding_simple_two_nodes) {
@@ -196,11 +234,13 @@ Suite* session_suite() {
 
     TCase* session_handling;
     TCase* session_coding;
+    TCase* session_logging;
 
     suite = suite_create("session");
 
     session_handling = tcase_create("Session Creation & Find");
     session_coding = tcase_create("Session Coding");
+    session_logging = tcase_create("Session Logging");
 
     tcase_add_checked_fixture(session_handling, test_session_setup, test_session_teardown);
     tcase_add_test(session_handling, test_session_creation_and_find);
@@ -208,8 +248,12 @@ Suite* session_suite() {
     tcase_add_checked_fixture(session_coding, test_session_setup, test_session_teardown);
     tcase_add_test(session_coding, test_session_coding_simple_two_nodes);
 
+    tcase_add_checked_fixture(session_logging, test_session_setup, test_session_teardown);
+    tcase_add_test(session_coding, test_session_log);
+
     suite_add_tcase(suite, session_handling);
     suite_add_tcase(suite, session_coding);
+    suite_add_tcase(suite, session_logging);
 
     return suite;
 }
