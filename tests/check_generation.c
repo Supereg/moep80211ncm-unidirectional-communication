@@ -244,7 +244,7 @@ START_TEST(test_generation_advance_source) {
     status = generation_list_encoder_add(&check_generation_list, (u8*) example1, strlen(example1));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
 
-    // Call "generation_list_next_encoded_frame" two times to simulate sending them out (calling generation_advance)
+    // Call generation_next_encoded_frame() two times to simulate sending them out (calling generation_advance)
     status = generation_next_encoded_frame(source_gen0, CHECK_MAX_PDU, &sequence_number, buffer, &length);
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
     ck_assert_int_eq(sequence_number, 0);

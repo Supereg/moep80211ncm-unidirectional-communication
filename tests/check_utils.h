@@ -50,7 +50,7 @@ check_test_context_t* test_init(
     session_t* intermediate,
     session_t* destination,
     double forwarding_probability,
-    int forwarding_timeout);
+    s64 max_forwarding_timeout);
 
 void test_free(check_test_context_t* context);
 
@@ -58,7 +58,7 @@ int check_rtx_frame_callback(session_subsystem_context_t* session_context, sessi
 int check_os_frame_callback(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length);
 
 void await(int ms);
-void await_os_frame();
+void await_fully_decoded();
 
 os_frame_entry_t * pop_os_frame_entry(); // Don't forget to free(...) after pop
 os_frame_entry_t * peek_os_frame_entry(int index);

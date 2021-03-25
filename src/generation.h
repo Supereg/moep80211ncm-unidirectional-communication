@@ -93,18 +93,6 @@ void generation_free(generation_t* generation);
 void generation_list_free(struct list_head *generation_list);
 
 /**
- * Returns the amount of free space inside the coding matrix for the given `generation_t`.
- *
- * Equivalent formulations:
- *  - The amount of source frames yet to be sent.
- *  - The amount of encoded frames yet to received (to later be decoded/recoded).
- *
- * @param generation - The `generation_t` to return the remaining space for.
- * @return Returns the amount of free space inside the coding matrix.
- */
-int generation_space_remaining(const generation_t* generation);
-
-/**
  * Adds a source frame (e.g. received from the OS) to the next available generation in the provided generation list.
  * This might then lead to the `session_subsystem_context_t.rtx_callback` being called with the encoded frame.
  *
@@ -149,8 +137,6 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
  */
 NCM_GENERATION_STATUS generation_list_receive_frame(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length);
 
-int generation_list_advance(struct list_head* generation_list);
-
 void generation_write_ack_payload(struct list_head* generations_list, ack_payload_t* payload);
 
 int generation_window_size(struct list_head* generations_list);
@@ -158,5 +144,25 @@ int generation_window_size(struct list_head* generations_list);
 u16 generation_window_id(struct list_head* generations_list);
 
 int generation_index(struct list_head* generations_list, generation_t* generation);
+
+bool generation_empty(const generation_t* generation);
+
+/**
+ * Returns the amount of free space inside the coding matrix for the given `generation_t`.
+ *
+ * Equivalent formulations:
+ *  - The amount of source frames yet to be sent.
+ *  - The amount of encoded frames yet to received (to later be decoded/recoded).
+ *
+ * @param generation - The `generation_t` to return the remaining space for.
+ * @return Returns the amount of free space inside the coding matrix.
+ */
+int generation_space_remaining(const generation_t* generation);
+
+bool generation_is_complete(const generation_t* generation);
+
+bool generation_remote_decoded(const generation_t* generation);
+
+bool generation_list_remote_decoded(struct list_head* generation_list);
 
 #endif //GENERATION_H
