@@ -4,6 +4,8 @@ AC_INIT([Jitter Suppression Module], [0.0], [martin.jobst@tum.de], [libjsm], [ht
 AC_PROG_CC
 AC_PROG_LN_S
 
+AC_CONFIG_MACRO_DIR([../m4])
+
 AM_INIT_AUTOMAKE([-Wall -Werror subdir-objects foreign])
 AM_SILENT_RULES([yes])
 

@@ -32,9 +32,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v2
 
-      # In theory autoreconf is needed, though we run in an very specific environment, and excluding it saves some run minutes
-      # - name: autoreconf
-      #   run: autoreconf -i
+      - name: autoreconf
+        run: autoreconf -i
 
       - name: Prepare build directory # Create the ./build directory
         run: mkdir ${{ env.build-directory }}
