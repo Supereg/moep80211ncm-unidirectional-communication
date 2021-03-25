@@ -111,7 +111,7 @@ void session_subsystem_close(session_subsystem_context_t* context) {
 
 
 // generates the filename for statistics saving
-static char *get_log_fn(session_t* s)
+static char *session_get_log_fn(session_t* s)
 {
     static char filename[1000];
     u8* session_id;
@@ -135,7 +135,7 @@ void session_log_state(session_subsystem_context_t* context) {
 
     list_for_each_entry(pos, &context->sessions_list, list) {
         session_id = (u8 *) &pos->session_id;
-        filename = get_log_fn(pos);
+        filename = session_get_log_fn(pos);
         file = fopen(filename, "a");
         if (!file)
 			DIE("cannot open file: %s", filename);
@@ -493,11 +493,11 @@ int session_transmit_ack_frame(session_t* session) {
 }
 
 void session_commit(session_t* session, generation_t* generation) {
-    struct generation_packet_counter ctr;
+    struct generation_packet_counter* ctr;
 
-    ctr = generation_commit(generation);
-    session->ctr.data_ack += ctr.data_ack;
-    session->ctr.redundant += ctr.redundant;
+    ctr = generation_get_counters(generation);
+    session->ctr.data_ack += ctr->data_ack;
+    session->ctr.redundant += ctr->redundant;
 }
 
 /**

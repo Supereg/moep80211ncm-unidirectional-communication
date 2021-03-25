@@ -170,6 +170,6 @@ int generation_index(struct list_head* generations_list, generation_t* generatio
  * @param generation - the generation being reset/whose stats we want
  * @returns a struct generation_packet_counter holding the stats
  */
-struct generation_packet_counter generation_commit(generation_t* generation);
+struct generation_packet_counter* generation_get_counters(generation_t* generation);
 
 #endif //GENERATION_H

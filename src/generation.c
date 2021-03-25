@@ -367,8 +367,8 @@ void generation_assume_complete(generation_t* generation) {
     generation->next_pivot = generation->generation_size;
 }
 
-struct generation_packet_counter generation_commit(generation_t* generation) {
-    return generation->ctr;
+struct generation_packet_counter* generation_get_counters(generation_t* generation) {
+    return &(generation->ctr);
 }
 
 void generation_reset(generation_t* generation, u16 new_sequence_number) {
