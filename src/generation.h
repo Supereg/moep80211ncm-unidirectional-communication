@@ -173,6 +173,8 @@ bool generation_empty(const generation_t* generation);
  */
 int generation_space_remaining(const generation_t* generation);
 
+int generation_list_space_remaining(struct list_head* generation_list);
+
 bool generation_is_complete(const generation_t* generation);
 
 bool generation_remote_decoded(const generation_t* generation);

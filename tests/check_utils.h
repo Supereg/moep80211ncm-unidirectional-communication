@@ -52,6 +52,8 @@ check_test_context_t* test_init(
     double forwarding_probability,
     s64 max_forwarding_timeout);
 
+bool test_initialized();
+
 void test_free(check_test_context_t* context);
 
 int check_rtx_frame_callback(session_subsystem_context_t* session_context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
@@ -60,6 +62,7 @@ int check_os_frame_callback(session_subsystem_context_t* context, session_t* ses
 void await(int ms);
 void await_fully_decoded();
 
+bool os_frame_entries_emtpy();
 os_frame_entry_t * pop_os_frame_entry(); // Don't forget to free(...) after pop
 os_frame_entry_t * peek_os_frame_entry(int index);
 

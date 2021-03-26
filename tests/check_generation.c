@@ -42,11 +42,10 @@ void test_generation_teardown() {
 static void check_gen_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result) {
     (void) generation;
     (void) data;
+    (void) result;
 
     switch (event) {
-        case GENERATION_EVENT_SESSION_REDUNDANCY:
-            *(double*) result = 1.0; // TODO make this configurable/testable?
-            break;
+        case GENERATION_EVENT_SESSION_REDUNDANCY: // implementation uses default "result" value
         case GENERATION_EVENT_ACK:
         case GENERATION_EVENT_ENCODED:
         case GENERATION_EVENT_RESET:
@@ -144,8 +143,6 @@ START_TEST(test_generation_sequence_number) {
 }
 END_TEST
 
-// TODO test for the timeout stuff
-
 /* ----------------------------------- CODING related tests ----------------------------------- */
 
 START_TEST(test_generation_source) {
@@ -164,9 +161,7 @@ START_TEST(test_generation_source) {
     status = generation_encoder_add(generation, (u8*) example0, strlen(example0));
     ck_assert_int_eq(status, GENERATION_STATUS_SUCCESS);
     ck_assert_int_eq(generation->next_pivot, 1);
-    LOG(LOG_INFO, "kjadsjkdaskj");
     ck_assert_int_eq(generation_space_remaining(generation), 0);
-    LOG(LOG_INFO, "kjadsjkdaskj");
 
     returned_length = rlnc_block_get(generation->rlnc_block, 0, buffer, CHECK_MAX_PDU);
     ck_assert_int_eq(returned_length, strlen(example0));
@@ -174,7 +169,6 @@ START_TEST(test_generation_source) {
 
     status = generation_encoder_add(generation, (u8*) example1, strlen(example1));
     ck_assert_int_eq(status, GENERATION_FULLY_TRAVERSED);
-    LOG(LOG_INFO, "jknadwjkw");
 
     generation_assume_complete(generation); // cancel tx timeout
 }
@@ -279,8 +273,6 @@ START_TEST(test_generation_advance_source) {
     generation_assume_complete(source_gen1); // cancel tx timeout
 }
 END_TEST
-
-// TODO test: simulating frames arriving out of order (+ across multiple generations)
 
 /* -------------------------------------------------------------------------------------------- */
 

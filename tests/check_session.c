@@ -1,4 +1,4 @@
-// This file contains all test case definitions related to the `session.c` file.
+﻿// This file contains all test case definitions related to the `session.c` file.
 // The session test `Suite` is created inside `session_suite()`.
 //
 // To add any tests, use `START_TEST(...)` and `END_TEST` marcos,
@@ -20,6 +20,8 @@
 
 #include "../src/session.c" // NOLINT(bugprone-suspicious-include)
 
+#define GENERATED_PACKET_NUM_SIZE 4 // packet counter prepended to the buffer
+
 static u8 address_src[IEEE80211_ALEN] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41};
 static u8 address_intermediate[IEEE80211_ALEN] = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
 static u8 address_dst[IEEE80211_ALEN] = {0x43, 0x43, 0x43, 0x43, 0x43, 0x43};
@@ -29,10 +31,42 @@ session_subsystem_context_t* intermediate_context;
 session_subsystem_context_t* dst_context;
 
 /**
+ * Configuration for a single execution of a random packet test.
+ */
+struct random_test_config {
+    double forwarding_probability;
+    s64 max_forwarding_timeout;
+    int packet_gen_min_time;
+    int packet_gen_max_time;
+};
+
+struct generated_packet {
+    struct list_head list;
+    size_t length; // the buffer length minus GENERATED_PACKET_NUM_SIZE (prepended)
+    u8 buffer[CHECK_MAX_PDU];
+};
+
+/**
+ * State information for a currently running "random test".
+ * Used to pass around information, e.g. to timeouts.
+ */
+struct random_test_execution {
+    session_t* source;
+    bool packet_timeout_running;
+    const struct random_test_config* config;
+
+    u64 generated_packet_count;
+
+    // list of `generated_packet`s
+    struct list_head generated_packets;
+};
+
+/**
  * Setup is called before **every** test of a `TCase` (Test case).
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_session_setup() {
+    LOG(LOG_INFO, "session_test_setup!");
     init_check_utils();
 
     src_context = session_subsystem_init(
@@ -63,6 +97,7 @@ void test_session_setup() {
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
  */
 void test_session_teardown() {
+    LOG(LOG_INFO, "session_test_teardown!");
     close_check_utils();
 
     session_subsystem_close(src_context);
@@ -197,7 +232,6 @@ START_TEST(test_session_coding_simple_two_nodes) {
 
     await_fully_decoded();
 
-    // TODO shortcut to assert received packet
     received = peek_os_frame_entry(0);
     ck_assert_int_eq(received->length, strlen(example0));
     ck_assert_int_eq(received->ether_type, CHECK_ETHER_TYPE);
@@ -228,7 +262,198 @@ START_TEST(test_session_coding_simple_two_nodes) {
 }
 END_TEST
 
-// TODO packet loss tests + randomized packets tests (+multiple session_encoder_add per await_fully_decoded())
+// test_session_coding_random_two_nodes is called for each of those configurations
+const struct random_test_config test_config_coding_random_two_nodes[] = {
+    { .forwarding_probability = 1, .max_forwarding_timeout = 0, .packet_gen_min_time = 0, .packet_gen_max_time = 2 },
+    { .forwarding_probability = 1, .max_forwarding_timeout = 10, .packet_gen_min_time = 0, .packet_gen_max_time = 2 },
+    { .forwarding_probability = 0.9, .max_forwarding_timeout = 0, .packet_gen_min_time = 2, .packet_gen_max_time = 4 },
+    { .forwarding_probability = 0.8, .max_forwarding_timeout = 0, .packet_gen_min_time = 4, .packet_gen_max_time = 6 },
+    { .forwarding_probability = 0.7, .max_forwarding_timeout = 0, .packet_gen_min_time = 6, .packet_gen_max_time = 8 },
+    { .forwarding_probability = 0.5, .max_forwarding_timeout = 0, .packet_gen_min_time = 8, .packet_gen_max_time = 10 },
+};
+
+static int random_coding_packet_timeout_callback(timeout_t timeout, u32 overrun, void* data) {
+    static const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    static const int charset_size = sizeof(charset) - 1;
+
+    (void) overrun;
+    struct random_test_execution* execution;
+    struct generated_packet* packet;
+
+    size_t i;
+    u32* packet_counter;
+    int next_timeout;
+    int ret;
+
+    ck_assert_int_eq(sizeof(*packet_counter), GENERATED_PACKET_NUM_SIZE);
+
+    execution = data;
+
+    if (!execution->packet_timeout_running || !test_initialized()) {
+        // test was finished, timeout was cancelled
+        return 0;
+    }
+
+    if (generation_list_space_remaining(session_generation_list(execution->source)) == 0) {
+        // ensure session_encoder_add doesn't drop frames because the timer produced
+        // faster than the destination could ACK the frames.
+        LOG(LOG_WARNING, "packet_timeout ran to fast, generations are full! Skipping...");
+
+        ret = timeout_settime(timeout, 0, timeout_msec(execution->config->packet_gen_max_time, 0));
+        if (ret != 0) {
+            DIE("session test failed to timeout_settime(): %s", strerror(errno));
+        }
+        return 0;
+    }
+
+    packet = calloc(1, sizeof(struct generated_packet));
+    if (packet == NULL) {
+        DIE("random_coding_packet_timeout_callback() failed to calloc generated_packet!");
+    }
+
+    // the packet->buffer is prefixed with a GENERATED_PACKET_NUM_SIZE byte long
+    // packet counter. This is to test if the packets were received in order
+    // and nothing was dropped.
+    // packet->length carries the buffer length minus the packet counter length.
+
+    packet->length = random() % (CHECK_MAX_PDU + 1 - GENERATED_PACKET_NUM_SIZE);
+
+    for (i = GENERATED_PACKET_NUM_SIZE; i < packet->length; i++) {
+        int key = (int) (random() % (sizeof(charset) - 1));
+        packet->buffer[i] = charset[key];
+    }
+
+    ck_assert_int_le(execution->generated_packet_count, UINT32_MAX);
+    packet_counter = (u32*) packet->buffer;
+    *packet_counter = execution->generated_packet_count++;
+
+    list_add_tail(&packet->list, &execution->generated_packets);
+
+    ret = session_encoder_add(execution->source, CHECK_ETHER_TYPE, packet->buffer, packet->length + GENERATED_PACKET_NUM_SIZE);
+    if (ret != 0) {
+        DIE_SESSION(execution->source, "Failed to add random source packet!");
+    }
+
+    next_timeout = max(
+        execution->config->packet_gen_min_time,
+        (int) (random() % (execution->config->packet_gen_max_time + 1)));
+
+    ret = timeout_settime(timeout, 0, timeout_msec(next_timeout, 0));
+    if (ret != 0) {
+        DIE("session test failed to timeout_settime(): %s", strerror(errno));
+    }
+
+    return 0;
+}
+
+START_TEST(test_session_coding_random_two_nodes) {
+    static struct random_test_execution execution = {0};
+    unsigned int seed;
+    check_test_context_t* context;
+    session_t* source;
+    session_t* destination;
+    timeout_t packet_timeout;
+    int ret;
+    struct generated_packet* generated_packet;
+    u32 expected_packet_num;
+    u32 packet_num = 0;
+    os_frame_entry_t* os_frame;
+
+    // seed is logged below, in order to reproduce tests
+    seed = time(NULL);
+    srandom(seed);
+
+    ck_assert_int_eq(sizeof(expected_packet_num), GENERATED_PACKET_NUM_SIZE);
+    ck_assert_int_eq(sizeof(packet_num), GENERATED_PACKET_NUM_SIZE);
+
+    execution.config = &test_config_coding_random_two_nodes[_i];
+    LOG(LOG_INFO, "Starting test_session_coding_random_two_nodes with config: seed=%d, prob=%f, timeout=%ld",
+        seed, execution.config->forwarding_probability, execution.config->max_forwarding_timeout);
+
+    // adjust the default configuration for real world tests
+    *(int*) &src_context->generation_size = 64;
+    *(int*) &src_context->generation_window_size = 4;
+    *(int*) &dst_context->generation_size = 64;
+    *(int*) &dst_context->generation_window_size = 4;
+
+    source = session_register(src_context, address_src, address_dst);
+    ck_assert_int_eq(source->type, SOURCE);
+    destination = session_register(dst_context, address_src, address_dst);
+    ck_assert_int_eq(destination->type, DESTINATION);
+
+    context = test_init(source, NULL, destination, execution.config->forwarding_probability, execution.config->max_forwarding_timeout);
+
+    execution.source = source;
+    execution.packet_timeout_running = true;
+    execution.generated_packet_count = 0;
+    INIT_LIST_HEAD(&execution.generated_packets);
+
+    // One execution of the timeout corresponds to one generated frame added to the source.
+    // The timeout is run irregularly. On every execution a new timeout values is drawn from
+    // an interval of e.g. [0;2] (configurable in the random_test_config).
+    // The timer runs for 5 seconds.
+    // Every tests run will therefore generate roughly 3k-4k packets depending on the interval drawn.
+    // Every packet has a maximum of 1024 byte (whatever is set in CHECK_MAX_PDU macro).
+    ret = timeout_create(CLOCK_MONOTONIC, &packet_timeout, random_coding_packet_timeout_callback, &execution);
+    if (ret != 0) {
+        DIE("session test failed to timeout_create(): %s", strerror(errno));
+    }
+
+    ret = timeout_settime(packet_timeout, 0, timeout_msec(0, 0));
+    if (ret != 0) {
+        DIE("session test failed to timeout_settime(): %s", strerror(errno));
+    }
+
+    // let it run for 5s
+    await(5000);
+
+    // cancel and delete packet timeout
+    execution.packet_timeout_running = false;
+    ret = timeout_clear(packet_timeout);
+    if (ret != 0) {
+        DIE("session test failed to timeout_clear(): %s", strerror(errno));
+    }
+
+    // ensure all packets are decoded and acknowledged
+    await_fully_decoded();
+
+    ret = timeout_delete(packet_timeout);
+    if (ret != 0) {
+        DIE("session test failed to timeout_delete(): %s", strerror(errno));
+    }
+
+    // if nothing was received/sent something is faulty
+    ck_assert(!os_frame_entries_emtpy());
+
+    while (!list_empty(&execution.generated_packets)) {
+        generated_packet = list_first_entry(&execution.generated_packets, struct generated_packet, list);
+        // as explained in random_coding_packet_timeout_callback,
+        // first 4 bytes encodes packet num
+        expected_packet_num = ((u32*) generated_packet->buffer)[0];
+        ck_assert_msg(!os_frame_entries_emtpy(), "Expected packet %d but list of decoded packets is empty.", expected_packet_num);
+        os_frame = pop_os_frame_entry();
+
+        // ensure no packets are dropped or delivered out of order.
+        ck_assert_int_eq(expected_packet_num, packet_num);
+
+        ck_assert_int_eq(os_frame->ether_type, CHECK_ETHER_TYPE);
+        ck_assert_int_eq(os_frame->length, generated_packet->length + GENERATED_PACKET_NUM_SIZE);
+        ck_assert_mem_eq(os_frame->payload, generated_packet->buffer, os_frame->length);
+
+        list_del(&generated_packet->list);
+        free(generated_packet);
+        free(os_frame);
+
+        packet_num++;
+    }
+
+    ck_assert(os_frame_entries_emtpy());
+
+    test_free(context);
+}
+END_TEST
+
+// TODO test session_redundancy and qdelay parameters
 
 /* -------------------------------------------------------------------------------------------- */
 
@@ -237,12 +462,14 @@ Suite* session_suite() {
 
     TCase* session_handling;
     TCase* session_coding;
+    TCase* session_random_coding;
     TCase* session_logging;
 
     suite = suite_create("session");
 
     session_handling = tcase_create("Session Creation & Find");
     session_coding = tcase_create("Session Coding");
+    session_random_coding = tcase_create("Session Random Coding");
     session_logging = tcase_create("Session Logging");
 
     tcase_add_checked_fixture(session_handling, test_session_setup, test_session_teardown);
@@ -251,11 +478,17 @@ Suite* session_suite() {
     tcase_add_checked_fixture(session_coding, test_session_setup, test_session_teardown);
     tcase_add_test(session_coding, test_session_coding_simple_two_nodes);
 
+    tcase_add_checked_fixture(session_random_coding, test_session_setup, test_session_teardown);
+    size_t random_coding_test_count = sizeof(test_config_coding_random_two_nodes) / sizeof(struct random_test_config);
+    tcase_add_loop_test(session_random_coding, test_session_coding_random_two_nodes, 0, random_coding_test_count);
+    tcase_set_timeout(session_random_coding, 20); // every test runs for at least 5 seconds
+
     tcase_add_checked_fixture(session_logging, test_session_setup, test_session_teardown);
     tcase_add_test(session_coding, test_session_log);
 
     suite_add_tcase(suite, session_handling);
     suite_add_tcase(suite, session_coding);
+    suite_add_tcase(suite, session_random_coding);
     suite_add_tcase(suite, session_logging);
 
     return suite;
