@@ -266,7 +266,7 @@ static void tx_inc(generation_t* generation) {
     if (tx->src_count < 0) {
         tx->src_count += 1;
         // count transmission on sender side
-        generation->ctr.data_ack += 1;
+        generation->ctr.data += 1;
     } else {
         // redundant transmission
         tx->redundancy += 1;
@@ -578,7 +578,7 @@ static NCM_GENERATION_STATUS generation_decoder_add(generation_t* generation, u8
     } else if (generation->session_type == DESTINATION) {
         generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
         // count sent ack on receiver side
-        generation->ctr.data_ack += 1;
+        generation->ctr.ack += 1;
     }
 
     return GENERATION_STATUS_SUCCESS;

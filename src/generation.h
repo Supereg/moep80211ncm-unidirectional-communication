@@ -45,7 +45,8 @@ typedef enum NCM_GENERATION_STATUS_ENUM {
 } NCM_GENERATION_STATUS;
 
 struct generation_packet_counter {
-       int data_ack;
+       int data;
+       int ack;
        int redundant;
 };
 

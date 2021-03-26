@@ -130,7 +130,7 @@ START_TEST(test_session_log) {
     session_t* tmp_session;
     char* fn;
     FILE* file;
-    char* cmp1 = "414141414141434343434343,0,0\n";
+    char* cmp1 = "414141414141434343434343,0,0,0\n";
     char* red1 = NULL;
     size_t len1;
     session_id expected_id;

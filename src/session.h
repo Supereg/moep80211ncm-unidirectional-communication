@@ -29,7 +29,8 @@ typedef struct {
 } session_id;
 
 struct session_packet_counter {
-    int data_ack;
+    int data;
+    int ack;
     int redundant;
 };
 

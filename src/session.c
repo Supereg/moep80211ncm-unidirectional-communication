@@ -143,7 +143,8 @@ void session_log_state(session_subsystem_context_t* context) {
         for (i = 0; i < 12; i++) {
             fprintf(file, "%02x", session_id[i]);
         }
-        fprintf(file, ",%d,", pos->ctr.data_ack);
+        fprintf(file, ",%d,", pos->ctr.data);
+        fprintf(file, "%d,", pos->ctr.ack);
         fprintf(file, "%d\n", pos->ctr.redundant);
         fclose(file);
     }
@@ -496,7 +497,8 @@ void session_commit(session_t* session, generation_t* generation) {
     struct generation_packet_counter* ctr;
 
     ctr = generation_get_counters(generation);
-    session->ctr.data_ack += ctr->data_ack;
+    session->ctr.data += ctr->data;
+    session->ctr.ack += ctr->ack;
     session->ctr.redundant += ctr->redundant;
 }
 
