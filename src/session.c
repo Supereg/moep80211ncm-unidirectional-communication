@@ -13,7 +13,9 @@
 #include <moepcommon/timeout.h>
 
 #include "generation.h"
+
 #include "neighbor.h"
+#include "qdelay.h"
 
 void session_free(session_t* session); // forward declaration used in session_callback_destroy()
 void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
@@ -584,15 +586,15 @@ static int session_ack_callback(timeout_t timeout, u32 overrun, void* data) {
         LOG_SESSION(LOG_WARNING, session, "session_ack_callback() detected %d skipped executions (overruns)", overrun);
     }
 
-    // TODO magic constant, count of packets sent out but now received by ourselves.
-    //  external dependency, needs mocking in the unit test!
-    /*
+    // Some sort of debounce mechanism for acknowledgments
+    // though not sure where this check comes from.
+    // It was copied from the bidirectional session management as is.
+    // TODO magic constant. Where does it come from?
     if (qdelay_packet_cnt() > 10) {
-		timeout_settime(g->task.ack, TIMEOUT_FLAG_SHORTEN,
-			timeout_usec(0.5*1000,GENERATION_ACK_INTERVAL*1000));
-		return 0;
-	}
-     */
+        timeout_settime(session->timeouts.ack, TIMEOUT_FLAG_SHORTEN,
+                        timeout_usec( (s64) ((double) SESSION_ACK_TIMEOUT * 0.5 * 1000), 0));
+        return 0;
+    }
 
 
     session_transmit_ack_frame(session);

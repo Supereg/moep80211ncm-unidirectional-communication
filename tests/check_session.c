@@ -63,18 +63,26 @@ struct random_test_execution {
 
 /* ------------ TEST STUBS simulating any NCM module dependence ------------ */
 
+// neighbour.h
 double nb_ul_redundancy_stub_val = 1.0;
 double nb_ul_redundancy(const u8 *hwaddr) {
     (void) hwaddr;
     return nb_ul_redundancy_stub_val;
 }
 
+// neighbour.h
 double nb_ul_quality_stub_val = 1.0;
 double nb_ul_quality(const u8 *hwaddr, int *p, int *q) {
     (void) hwaddr;
     (void) p;
     (void) q;
     return nb_ul_quality_stub_val;
+}
+
+// qdelay.h
+int qdelay_packet_cnt_stub_val = 0;
+int qdelay_packet_cnt() {
+    return qdelay_packet_cnt_stub_val;
 }
 
 /* ------------------------------------------------------------------------- */
