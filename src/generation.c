@@ -31,12 +31,24 @@ static int generation_tx_callback(timeout_t timeout, u32 overrun, void* data);
  * which do transmission (SOURCE and INTERMEDIATE).
  */
 struct tx {
-    // TODO document
+    /**
+     * Counts the "created" frames.
+     * Thus this counter is only applciable for SOURCE nodes.
+     */
     int src_count;
-    // TODO document
+    /**
+     * Counts the (based on link estimation)
+     * redundant transmissions.
+     */
     double redundancy;
 
-    // TODO document
+    /**
+     * Transmission timeout.
+     * Runs with 0ms when we are sure we are transmitting linear independent
+     * information. Otherwise the timeout will increase for every
+     * (presumably) linear dependent transmission.
+     * See `tx_inc`, `tx_dec`, `tx_timeout_val`
+     */
     timeout_t timeout;
 };
 
@@ -52,6 +64,11 @@ struct generation {
      * (either by creating a new generation, or by freeing an old generation and allocating a new sequence number).
      */
     u16 sequence_number;
+    /**
+     * The index of the generation in the list, which
+     * the generation is inserted in.
+     */
+    int index;
 
     /**
      * The session type of the associated session (See `SESSION_TYPE`):
@@ -127,6 +144,7 @@ generation_t* generation_init(
 
     tx = NULL;
     u16 sequence_number = 0;
+    int generation_index = 0;
 
     // As of time of writing (March 2021) rlnc_block_encode() fails to do encoding
     // [the resulting buffer will not be written to, length is properly set] for generations with only one source frame and RLNC_STRUCTURED NOT set.
@@ -136,8 +154,11 @@ generation_t* generation_init(
     // generate next sequence number, required to start at zero and be continuous
     if (!list_empty(generation_list)) {
         previous = list_last_entry(generation_list, struct generation, list);
+
         sequence_number = previous->sequence_number + 1;
         assert(sequence_number <= GENERATION_MAX_SEQUENCE_NUMBER - 1);
+
+        generation_index = previous->index + 1;
     }
 
     generation = calloc(1, sizeof(struct generation));
@@ -146,6 +167,7 @@ generation_t* generation_init(
     }
 
     generation->sequence_number = sequence_number;
+    generation->index = generation_index;
 
     *(enum SESSION_TYPE*) &generation->session_type = session_type;
     *(size_t*) &generation->max_pdu_size = max_pdu_size;
@@ -190,7 +212,7 @@ generation_t* generation_init(
 void generation_free(generation_t* generation) {
     int ret;
 
-    generation->next_pivot = 0; // TODO document the reason. (rtx_callback)
+    generation->next_pivot = 0;
     generation->remote_dimension = 0;
 
     rlnc_block_free(generation->rlnc_block);
@@ -278,17 +300,15 @@ static void tx_inc(generation_t* generation) {
 static int tx_timeout_val(const generation_t* generation) {
     double time;
 
-    if (tx_estimation(generation) <= -1) { // TODO why not zero? (0;-1)???
+    if (tx_estimation(generation) <= -1) {
         time = 0;
     } else {
         time = GENERATION_RTX_MIN_TIMEOUT;
-        // TODO time += generation_index(NULL, generation);
-        time += tx_estimation(generation) + 1.0; // TODO the 1.0 offset is probably as it might be in the range of (-1; 0)?
+        time += generation_index(generation);
+        time += tx_estimation(generation) + 1.0; // +1 as in range of (-1;+infty)
 
         time = min(time, (double) GENERATION_RTX_MAX_TIMEOUT);
     }
-
-    //t += qdelay_get() / 2; TODO was commented in the old code
 
     return (int) time;
 }
@@ -394,6 +414,15 @@ struct generation_packet_counter* generation_get_counters(generation_t* generati
     return &(generation->ctr);
 }
 
+static void generation_rewrite_indices(struct list_head* generation_list) {
+    generation_t* current;
+    int index = 0;
+
+    list_for_each_entry(current, generation_list, list) {
+        current->index = index++;
+    }
+}
+
 void generation_reset(generation_t* generation, u16 new_sequence_number) {
     int ret;
 
@@ -445,6 +474,8 @@ int generation_list_advance(struct list_head* generation_list) {
 
         advance_count++;
     }
+
+    generation_rewrite_indices(generation_list);
 
     return advance_count;
 }
@@ -784,17 +815,8 @@ u16 generation_window_id(struct list_head* generations_list) {
     return first->sequence_number;
 }
 
-int generation_index(struct list_head* generations_list, generation_t* generation) {
-    generation_t* first;
-    int window_size;
-    u16 delta;
-
-    first = list_first_entry(generations_list, struct generation, list);
-    window_size = generation_window_size(generations_list);
-
-    delta = delta(generation->sequence_number, first->sequence_number, GENERATION_MAX_SEQUENCE_NUMBER);
-
-    return delta % window_size;
+int generation_index(const generation_t* generation) {
+    return generation->index;
 }
 
 
