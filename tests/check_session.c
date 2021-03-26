@@ -160,11 +160,7 @@ END_TEST
 /* ----------------------------------- Statistics Tests ----------------------------------- */
 
 START_TEST(test_session_log) {
-    session_t* session;
     session_t* created_src_session;
-    session_t* created_dst_session;
-    session_t* created_intermediate_session;
-    session_t* tmp_session;
     char* fn;
     FILE* file;
     char* cmp1 = "414141414141434343434343,0,0,0\n";
