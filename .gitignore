@@ -1,9 +1,33 @@
 **/build
 **.pdf
+*.o
+*.lo
+*.la
+*.log
+*.status
+*Makefile
+*.dirstamp
+*.libs
+*.deps
 
 **/*.cache
 
 .idea
+###
+
+aclocal.m4
+aminclude_static.am
+ar-lib
+compile
+config.guess
+config.sub
+**/configure
+depcomp
+install-sh
+ltmain.sh
+missing
+test-driver
+**/Makefile.in
 
 ### JetBrains template
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
@@ -119,6 +143,11 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Code Coverage
+*.gcda
+*.gcno
+*.trs
 
 CMakeLists.txt
 libmoep

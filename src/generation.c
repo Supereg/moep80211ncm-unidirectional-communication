@@ -91,6 +91,11 @@ struct generation {
      * This pointer is NULL for nodes not doing any transmissions.
      */
     struct tx* tx;
+
+    /**
+     * struct for statistics
+     */
+    struct generation_packet_counter ctr;
 };
 
 generation_t* generation_find(struct list_head* generation_list, u16 sequence_number) {
@@ -183,13 +188,18 @@ generation_t* generation_init(
 }
 
 void generation_free(generation_t* generation) {
+    int ret;
+
     generation->next_pivot = 0; // TODO document the reason. (rtx_callback)
     generation->remote_dimension = 0;
 
     rlnc_block_free(generation->rlnc_block);
 
     if (generation->tx != NULL) { // not present on DESTINATION nodes
-        timeout_delete(generation->tx->timeout);
+        ret = timeout_delete(generation->tx->timeout);
+        if (ret != 0) {
+            DIE("Failed generation_free() to timeout_delete(): %s", strerror(errno));
+        }
 
         free(generation->tx);
     }
@@ -260,9 +270,13 @@ static void tx_inc(generation_t* generation) {
 
     if (tx->src_count < 0) {
         tx->src_count += 1;
+        // count transmission on sender side
+        generation->ctr.data += 1;
     } else {
         // redundant transmission
         tx->redundancy += 1;
+        // count redundant transmission on sender side
+        generation->ctr.redundant += 1;
     }
 }
 
@@ -286,8 +300,6 @@ static int tx_timeout_val(const generation_t* generation) {
 
 static void generation_timeout_tx_schedule(generation_t* generation) {
     assert(generation->tx != NULL);
-    // TODO remove
-    LOG(LOG_INFO, "scheduling with %dms", tx_timeout_val(generation));
 
     int ret;
     ret = timeout_settime(generation->tx->timeout, TIMEOUT_FLAG_SHORTEN,
@@ -323,7 +335,7 @@ int generation_space_remaining(const generation_t* generation) {
     return size;
 }
 
-static bool generation_is_complete(const generation_t* generation) {
+bool generation_is_complete(const generation_t* generation) {
     // "complete" in the sense of full coding matrix + fully decoded
     switch (generation->session_type) {
         case SOURCE:
@@ -338,8 +350,22 @@ static bool generation_is_complete(const generation_t* generation) {
     DIE_GENERATION(generation, "Reached unsupported session type %d!", generation->session_type);
 }
 
-static bool generation_remote_decoded(const generation_t* generation) {
+bool generation_remote_decoded(const generation_t* generation) {
     return generation->remote_dimension >= generation->next_pivot;
+}
+
+bool generation_list_remote_decoded(struct list_head* generation_list) {
+    generation_t* generation;
+    bool result = true;
+
+    list_for_each_entry(generation, generation_list, list) {
+        if (!generation_remote_decoded(generation)) {
+            result = false;
+            break;
+        }
+    }
+
+    return result;
 }
 
 void generation_update_remote_dimension(generation_t* generation, int dimension) {
@@ -356,6 +382,10 @@ void generation_update_remote_dimension(generation_t* generation, int dimension)
 void generation_assume_complete(generation_t* generation) {
     generation_update_remote_dimension(generation, generation->generation_size);
     generation->next_pivot = generation->generation_size;
+}
+
+struct generation_packet_counter* generation_get_counters(generation_t* generation) {
+    return &(generation->ctr);
 }
 
 void generation_reset(generation_t* generation, u16 new_sequence_number) {
@@ -574,6 +604,8 @@ static NCM_GENERATION_STATUS generation_decoder_add(generation_t* generation, u8
         // TODO trigger a tx if not fully decoded?
     } else if (generation->session_type == DESTINATION) {
         generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
+        // count sent ack on receiver side
+        generation->ctr.ack += 1;
     }
 
     return GENERATION_STATUS_SUCCESS;
@@ -612,7 +644,7 @@ void align_generation_window(struct list_head* generation_list, coded_packet_met
         // our window_id is smaller, if the remote window_id is contained
         // in our current generation window!
         // We checked non equality AND overlapping windows above!
-        // Does two assumptions are key for our logic to work!
+        // Those two assumptions are key for our logic to work!
         if (NULL != generation_find(generation_list, metadata->window_id)) {
             // the remote window is further ahead.
             // If we are a SOURCE this means we probably lost some ACK packet.
@@ -790,7 +822,6 @@ static int generation_tx_callback(timeout_t timeout, u32 overrun, void* data) {
         }
     } while (tx_timeout_val(generation) < GENERATION_RTX_MIN_TIMEOUT || transmissions > 0);
 
-    LOG(LOG_INFO, "Rescheduling with pivot=%d remote=%d seq=%d gen=%d", generation->next_pivot, generation->remote_dimension, generation->sequence_number, generation->generation_size);
     // as a timeout, we rely on the session destroy timer
     generation_timeout_tx_schedule(generation);
 

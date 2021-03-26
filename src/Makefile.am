@@ -4,7 +4,14 @@
 # in order to override compiler optimization flags.
 DEFAULT_CFLAGS = -O2 -Wall
 
+# See comment in configure.ac
+if AUTOCONF_CODE_COVERAGE_2019_01_06
+include $(top_srcdir)/aminclude_static.am
+clean-local: code-coverage-clean
+distclean-local: code-coverage-dist-clean
+else
 @CODE_COVERAGE_RULES@
+endif
 
 # The session code is used withing the ncm module
 # as well as the unit test binary.
@@ -20,7 +27,8 @@ libsession_la_SOURCES += session.h
 libsession_la_SOURCES += global.h
 libsession_la_SOURCES += params.h
 
-libsession_la_CFLAGS  = $(DEFAULT_CFLAGS) $(CODE_COVERAGE_CFLAGS)
+libsession_la_CFLAGS  = $(DEFAULT_CFLAGS)
+libsession_la_CFLAGS += $(CODE_COVERAGE_CFLAGS)
 
 libsession_la_CPPFLAGS  = $(LIBMOEP_CFLAGS)
 libsession_la_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)

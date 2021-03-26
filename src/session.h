@@ -28,6 +28,12 @@ typedef struct {
     u8 destination_address[IEEE80211_ALEN];
 } session_id;
 
+struct session_packet_counter {
+    int data;
+    int ack;
+    int redundant;
+};
+
 /**
  * This struct is used to store any relevant metadata with the coded **payload**.
  * As we send out random linear combinations of our source frames,
@@ -258,5 +264,14 @@ int session_encoder_add(session_t* session, u16 ether_type, u8* payload, size_t 
  * @return Returns 0 for success, -1 for failure.
  */
 int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length);
+
+/**
+ * Logs the session context state to a csv file.
+ * Is not called by the session or context but has to be called by the module.
+ * 
+ * @param context - The session context that handles the sessions that are to be logged.
+ * @returns void.
+ */
+void session_log_state(session_subsystem_context_t* context);
 
 #endif //SESSION_H
