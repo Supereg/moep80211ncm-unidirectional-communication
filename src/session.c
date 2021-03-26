@@ -6,6 +6,7 @@
 #include "session.h"
 
 #include <assert.h>
+#include <time.h>
 
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
@@ -62,6 +63,11 @@ struct session {
      * Linked list, containing all `generation_t`s associated with the given session.
      */
     struct list_head generations_list;
+
+    /**
+     * packet counters for statistics
+     */
+    struct session_packet_counter ctr;
 };
 
 
@@ -103,6 +109,46 @@ void session_subsystem_close(session_subsystem_context_t* context) {
     free(context);
 }
 
+
+// generates the filename for statistics saving
+static char *session_get_log_fn(session_t* s)
+{
+    static char filename[1000];
+    u8* session_id;
+
+    session_id = (u8 *) &s->session_id;
+    snprintf(filename, 1000, "%s%d_%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x.log",
+        SESSION_LOG_FILE_PREFIX,
+        getpid(),
+        session_id[ 0], session_id[ 1], session_id[ 2], session_id[ 3],
+        session_id[ 4], session_id[ 5], session_id[ 6], session_id[ 7],
+        session_id[ 8], session_id[ 9], session_id[10], session_id[11]);
+    return filename;
+}
+
+void session_log_state(session_subsystem_context_t* context) {
+    session_t* pos;
+    char *filename;
+    FILE *file;
+    u8* session_id;
+    int i;
+
+    list_for_each_entry(pos, &context->sessions_list, list) {
+        session_id = (u8 *) &pos->session_id;
+        filename = session_get_log_fn(pos);
+        file = fopen(filename, "a");
+        if (!file)
+			DIE("cannot open file: %s", filename);
+        fprintf(file, "%lu,", (unsigned long) time(NULL));
+        for (i = 0; i < 12; i++) {
+            fprintf(file, "%02x", session_id[i]);
+        }
+        fprintf(file, ",%d,", pos->ctr.data);
+        fprintf(file, "%d,", pos->ctr.ack);
+        fprintf(file, "%d\n", pos->ctr.redundant);
+        fclose(file);
+    }
+}
 
 
 /**
@@ -455,6 +501,15 @@ int session_transmit_ack_frame(session_t* session) {
     return 0;
 }
 
+void session_commit(session_t* session, generation_t* generation) {
+    struct generation_packet_counter* ctr;
+
+    ctr = generation_get_counters(generation);
+    session->ctr.data += ctr->data;
+    session->ctr.ack += ctr->ack;
+    session->ctr.redundant += ctr->redundant;
+}
+
 /**
  * Calculates the number of transmission we expect to be required to successfully transmit a single frame,
  * based on the current link quality.
@@ -498,7 +553,7 @@ static void session_generation_event_handler(generation_t* generation, enum GENE
             session_transmit_encoded_frame(session, generation);
             break;
         case GENERATION_EVENT_RESET:
-            // TODO equivalent to "session_commit" (do we need the stats system though?)
+            session_commit(session, generation);
             break;
         case GENERATION_EVENT_SESSION_REDUNDANCY:
             *(double*) result = 1.0; // TODO implement above session_redundancy function (with the neighbour list dependency)
