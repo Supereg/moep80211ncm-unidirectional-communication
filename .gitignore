@@ -129,5 +129,10 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Code Coverage
+*.gcda
+*.gcno
+*.trs
+
 CMakeLists.txt
 libmoep
