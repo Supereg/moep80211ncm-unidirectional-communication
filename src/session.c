@@ -13,6 +13,7 @@
 #include <moepcommon/timeout.h>
 
 #include "generation.h"
+#include "neighbor.h"
 
 void session_free(session_t* session); // forward declaration used in session_callback_destroy()
 void session_list_free(session_subsystem_context_t* context); // forward declaration used in session_subsystem_close()
@@ -77,7 +78,8 @@ session_subsystem_context_t* session_subsystem_init(
     enum MOEPGF_TYPE moepgf_type,
     u8* hw_address,
     encoded_payload_callback rtx_callback,
-    decoded_payload_callback os_callback) {
+    decoded_payload_callback os_callback,
+    int redundancy_scheme) {
     struct session_subsystem_context* context;
 
     assert(hw_address != NULL && "hw_address pointer can't be NULL pointer!");
@@ -97,6 +99,8 @@ session_subsystem_context_t* session_subsystem_init(
 
     context->rtx_callback = rtx_callback;
     context->os_callback = os_callback;
+
+    context->redundancy_scheme = redundancy_scheme;
 
     INIT_LIST_HEAD(&context->sessions_list);
 
@@ -515,29 +519,26 @@ void session_commit(session_t* session, generation_t* generation) {
  * based on the current link quality.
  * The returned value is in the interval of [1.0, infinity).
  */
- // TODO below is already the draft for the session_redundancy function
- //  has some external requirements, we somehow need to mock in the unit test
-/*
-double session_redundancy(session_t* session) {
-   u8* hw_addr;
+static double session_redundancy(session_t* session) {
    double redundancy;
+   u8* remote_address;
 
-   // we do not (need to) support the 3-node/relay case
+   assert(session->type == SOURCE || session->type == INTERMEDIATE);
+   remote_address = session->session_id.destination_address;
 
-   if (!(hw_addr = session_find_remote_address(s))) {
-       LOG_SESSION(LOG_WARNING, session, "session_redundancy(): unable to find remote address");
-       return 0.0;
-   }
-
-   if (s->params.rscheme == 0)
-       redundancy = 1.0 / nb_ul_quality(hw_addr, NULL, NULL);
-   else
-       redundancy = nb_ul_redundancy(hw_addr);
+    switch (session->context->redundancy_scheme) {
+        case 0:
+            redundancy = 1.0 / nb_ul_quality(remote_address, NULL, NULL);
+            break;
+        case 1:
+            redundancy = nb_ul_redundancy(remote_address);
+            break;
+        default:
+            DIE_SESSION(session, "Unsupported redundancy scheme: %d", session->context->redundancy_scheme);
+    }
 
    return redundancy;
 }
-*/
-
 
 static void session_generation_event_handler(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result) {
     session_t* session;
@@ -556,7 +557,7 @@ static void session_generation_event_handler(generation_t* generation, enum GENE
             session_commit(session, generation);
             break;
         case GENERATION_EVENT_SESSION_REDUNDANCY:
-            *(double*) result = 1.0; // TODO implement above session_redundancy function (with the neighbour list dependency)
+            *(double*) result = session_redundancy(session);
             break;
         default:
             DIE_SESSION(session, "Received unknown generation event: %d", event);

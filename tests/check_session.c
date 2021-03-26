@@ -61,6 +61,24 @@ struct random_test_execution {
     struct list_head generated_packets;
 };
 
+/* ------------ TEST STUBS simulating any NCM module dependence ------------ */
+
+double nb_ul_redundancy_stub_val = 1.0;
+double nb_ul_redundancy(const u8 *hwaddr) {
+    (void) hwaddr;
+    return nb_ul_redundancy_stub_val;
+}
+
+double nb_ul_quality_stub_val = 1.0;
+double nb_ul_quality(const u8 *hwaddr, int *p, int *q) {
+    (void) hwaddr;
+    (void) p;
+    (void) q;
+    return nb_ul_quality_stub_val;
+}
+
+/* ------------------------------------------------------------------------- */
+
 /**
  * Setup is called before **every** test of a `TCase` (Test case).
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
@@ -75,21 +93,24 @@ void test_session_setup() {
         CHECK_GF_TYPE,
         address_src,
         check_rtx_frame_callback,
-        check_os_frame_callback);
+        check_os_frame_callback,
+        0);
     intermediate_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_intermediate,
         check_rtx_frame_callback,
-        check_os_frame_callback);
+        check_os_frame_callback,
+        0);
     dst_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_dst,
         check_rtx_frame_callback,
-        check_os_frame_callback);
+        check_os_frame_callback,
+        0);
 }
 
 /**
@@ -371,6 +392,10 @@ START_TEST(test_session_coding_random_two_nodes) {
     *(int*) &src_context->generation_window_size = 4;
     *(int*) &dst_context->generation_size = 64;
     *(int*) &dst_context->generation_window_size = 4;
+
+    // this value is used in the `session_redundancy` function
+    // which influences the rtx timeout value
+    nb_ul_quality_stub_val = execution.config->forwarding_probability;
 
     source = session_register(src_context, address_src, address_dst);
     ck_assert_int_eq(source->type, SOURCE);

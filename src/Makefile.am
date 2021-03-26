@@ -26,6 +26,7 @@ libsession_la_SOURCES += session.c
 libsession_la_SOURCES += session.h
 libsession_la_SOURCES += global.h
 libsession_la_SOURCES += params.h
+libsession_la_SOURCES += neighbor.h
 
 libsession_la_CFLAGS  = $(DEFAULT_CFLAGS)
 libsession_la_CFLAGS += $(CODE_COVERAGE_CFLAGS)
