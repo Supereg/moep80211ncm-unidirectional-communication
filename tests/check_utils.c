@@ -7,6 +7,8 @@
 //
 
 #include "check_utils.h"
+#include "check_session.h"
+#include "../src/generation.h"
 
 #include <assert.h>
 #include <sys/epoll.h>
@@ -49,10 +51,42 @@ do { \
     } \
 } while (0)
 
+#define LOG_PACKET(loglevel, frame, message, ...) \
+do { \
+    if (frame->metadata.ack) { \
+        LOG_SESSION(loglevel, frame->session, message" ACK window_id=%d", ## __VA_ARGS__, frame->metadata.window_id); \
+    } else { \
+        LOG_SESSION(LOG_INFO, frame->session, message"  TX window_id=%d gen_seq=%d", ## __VA_ARGS__, frame->metadata.window_id, frame->metadata.generation_sequence); \
+    } \
+} while (0)
+
+#define LOG_PACKET_DELAY(loglevel, frame, message, delay, ...) \
+do { \
+    if (frame->metadata.ack) { \
+        LOG_SESSION(loglevel, frame->session, message" ACK window_id=%d delay=%ldms", ## __VA_ARGS__, frame->metadata.window_id, delay); \
+    } else { \
+        LOG_SESSION(LOG_INFO, frame->session, message"  TX window_id=%d gen_seq=%d delay=%ldms", ## __VA_ARGS__, frame->metadata.window_id, frame->metadata.generation_sequence, delay); \
+    } \
+} while (0)
+
 
 #define CHECK_TIMEOUT_SIG SIGRTMIN
 #define AWAIT_FINISHED (-1003)
 #define AWAIT_TIMEOUT (-1004)
+#define AWAIT_MAX_TIMEOUT 20000
+
+struct stored_rtx_frame {
+    session_t* session;
+    coded_packet_metadata_t metadata;
+    u8 payload[CHECK_MAX_PDU];
+    size_t length;
+};
+
+struct queued_forwarding_timeout {
+    struct list_head list;
+    timeout_t timeout;
+    struct stored_rtx_frame* frame;
+};
 
 /**
  * State data for a specific test currently in execution.
@@ -63,7 +97,9 @@ struct check_test_context {
     session_t* destination;
 
     double forwarding_probability; // [0;1]
-    int forwarding_timeout; // -1 for no timeout
+    s64 max_forwarding_timeout; // -1 for no timeout
+
+    struct list_head forwarding_timeouts;
 };
 
 struct check_context {
@@ -79,8 +115,8 @@ struct check_context {
 };
 
 static LIST_HEAD(os_frame_entries);
-static bool os_frame_await_running = false;
-static timeout_t os_frame_await_timeout = NULL;
+static bool decodable_await_running = false;
+static timeout_t decodable_await_timeout = NULL;
 
 static struct check_context check_context = {0};
 
@@ -89,7 +125,7 @@ check_test_context_t* test_init(
     session_t* intermediate,
     session_t* destination,
     double forwarding_probability,
-    int forwarding_timeout) {
+    s64 max_forwarding_timeout) {
     struct check_test_context* context;
 
     context = calloc(1, sizeof(struct check_test_context));
@@ -104,7 +140,9 @@ check_test_context_t* test_init(
     context->intermediate = intermediate;
     context->destination = destination;
     context->forwarding_probability = forwarding_probability;
-    context->forwarding_timeout = forwarding_timeout;
+    context->max_forwarding_timeout = max_forwarding_timeout;
+
+    INIT_LIST_HEAD(&context->forwarding_timeouts);
 
     check_context.current_test = context;
 
@@ -112,8 +150,23 @@ check_test_context_t* test_init(
 }
 
 void test_free(check_test_context_t* context) {
+    struct queued_forwarding_timeout *queued_timeout, *tmp;
+    int ret;
+
     assert(check_context.current_test == context);
     check_context.current_test = NULL;
+
+    list_for_each_entry_safe(queued_timeout, tmp, &context->forwarding_timeouts, list) {
+        ret = timeout_delete(queued_timeout->timeout);
+        if (ret != 0) {
+            DIE("Failed test_free() to timeout_delete(): %s", strerror(errno));
+        }
+
+        free(queued_timeout->frame);
+
+        list_del(&queued_timeout->list);
+        free(queued_timeout);
+    }
 
     free(context);
 }
@@ -237,46 +290,49 @@ static void do_await(timeout_cb_t callback, s64 timeout_ms) {
 
     ret = timeout_settime(timeout, 0, timeout_msec(timeout_ms, 0));
     if (ret != 0) {
-        timeout_delete(timeout);
         DIE("await() failed to timeout_settime(): %s", strerror(errno));
     }
 
     run_loop();
 
-    timeout_delete(timeout);
+    ret = timeout_delete(timeout);
+    if (ret != 0) {
+        DIE("Failed do_await() to timeout_delete(): %s", strerror(errno));
+    }
 }
 
 void await(int ms) {
     do_await(await_finish_callback, ms);
 }
 
-void await_os_frame() {
-    // make check_os_frame_callback() call schedule_os_await_timeout() to gracefully exit the run loop
-    os_frame_await_running = true;
-    do_await(await_timeout_callback, 20000);
-    os_frame_await_running = false;
-
-    if (os_frame_await_timeout != NULL) {
-        timeout_delete(os_frame_await_timeout);
-        os_frame_await_timeout = NULL;
-    }
-}
-
-static void create_os_await_timeout() {
+void await_fully_decoded() {
     int ret;
 
-    ret = timeout_create(CLOCK_MONOTONIC, &os_frame_await_timeout, await_finish_callback, NULL);
-    if (ret != 0) {
-        DIE("schedule_os_await_timeout() failed timeout_create(): %s", strerror(errno));
+    // make check_os_frame_callback() call schedule_os_await_timeout() to gracefully exit the run loop
+    decodable_await_running = true;
+    do_await(await_timeout_callback, AWAIT_MAX_TIMEOUT);
+    decodable_await_running = false;
+
+    if (decodable_await_timeout != NULL) {
+        ret = timeout_delete(decodable_await_timeout);
+        if (ret != 0) {
+            DIE("Failed await_fully_decoded() to timeout_delete(): %s", strerror(errno));
+        }
+
+        decodable_await_timeout = NULL;
     }
 }
 
 static void schedule_os_await_timeout() {
     int ret;
 
-    ret = timeout_settime(os_frame_await_timeout, 0, timeout_msec(1, 0));
+    ret = timeout_create(CLOCK_MONOTONIC, &decodable_await_timeout, await_finish_callback, NULL);
     if (ret != 0) {
-        timeout_delete(os_frame_await_timeout);
+        DIE("schedule_os_await_timeout() failed timeout_create(): %s", strerror(errno));
+    }
+
+    ret = timeout_settime(decodable_await_timeout, 0, timeout_msec(1, 0));
+    if (ret != 0) {
         DIE("schedule_os_await_timeout() failed to timeout_settime(): %s", strerror(errno));
     }
 }
@@ -297,12 +353,11 @@ os_frame_entry_t* peek_os_frame_entry(int index) {
 
 // ------- below are the session context callbacks which must be hooked -------
 
-struct stored_rtx_frame {
-    session_t* session;
-    coded_packet_metadata_t metadata;
-    u8 payload[CHECK_MAX_PDU];
-    size_t length;
-};
+static bool session_fully_decoded(session_t* session) {
+    struct list_head* generation_list;
+    generation_list = session_generation_list(session);
+    return generation_list_remote_decoded(generation_list);
+}
 
 static void exec_session_decoder_add(struct stored_rtx_frame* frame) {
     int ret;
@@ -313,12 +368,68 @@ static void exec_session_decoder_add(struct stored_rtx_frame* frame) {
     ck_assert_int_eq(ret, 0);
 
     if (frame->session == check_context.current_test->source) {
-        // TODO we assume the ACK is what we want in state (this will not work with multiple session_encoded_added())
-        if (os_frame_await_timeout != NULL && !timeout_active(os_frame_await_timeout)) {
+        if (session_fully_decoded(frame->session)
+        && decodable_await_running && decodable_await_timeout == NULL) {
             schedule_os_await_timeout();
         }
     }
+
     free(frame);
+}
+
+static int forwarding_timeout_callback(timeout_t timeout, u32 overrun, void* data) {
+    (void) overrun;
+    int ret;
+    struct queued_forwarding_timeout* queued_timeout;
+
+    queued_timeout = data;
+
+    if (check_context.current_test == NULL) {
+        // timer signal was queued, though deleted in the meanwhile
+        return 0;
+    }
+
+    assert(timeout == queued_timeout->timeout);
+
+    ret = timeout_delete(timeout);
+    if (ret != 0) {
+        DIE("Failed forwarding_timeout_callback() to timeout_delete(): %s", strerror(errno));
+    }
+
+    exec_session_decoder_add(queued_timeout->frame);
+
+    list_del(&queued_timeout->list);
+    free(queued_timeout);
+
+    return 0;
+}
+
+static void schedule_forwarding_timeout(struct stored_rtx_frame* frame, s64 timeout_val) {
+    struct queued_forwarding_timeout* queued_timeout;
+    int ret;
+
+    assert(check_context.current_test != NULL && "Current test isn't available anymore!");
+
+    queued_timeout = calloc(1, sizeof(struct queued_forwarding_timeout));
+    if (queued_timeout == NULL) {
+        DIE("schedule_forwarding_timeout() failed to calloc queued_forwarding_timeout");
+    }
+
+    queued_timeout->frame = frame;
+
+    ret = timeout_create(CLOCK_MONOTONIC, &queued_timeout->timeout, forwarding_timeout_callback, queued_timeout);
+    if (ret != 0 ) {
+        free(queued_timeout);
+        DIE("schedule_forwarding_timeout() Failed to timeout_create() forwarding timeout: %s", strerror(errno));
+    }
+
+    ret = timeout_settime(queued_timeout->timeout, 0, timeout_msec(timeout_val, 0));
+    if (ret != 0) {
+        free(queued_timeout);
+        DIE("schedule_forwarding_timeout() Failed to timeout_settime() forwarding timeout: %s", strerror(errno));
+    }
+
+    list_add_tail(&queued_timeout->list, &check_context.current_test->forwarding_timeouts);
 }
 
 int check_rtx_frame_callback(session_subsystem_context_t* session_context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
@@ -327,7 +438,11 @@ int check_rtx_frame_callback(session_subsystem_context_t* session_context, sessi
     struct stored_rtx_frame* frame;
 
     test_context = check_context.current_test;
-    assert(test_context != NULL && "Test wasn't properly initialized!");
+
+    if (test_context == NULL) {
+        LOG(LOG_WARNING, "check_rtx_frame_callback() was called without a test_context.");
+        return 0;
+    }
 
     frame = calloc(1, sizeof(struct stored_rtx_frame));
     if (frame == NULL) {
@@ -355,23 +470,33 @@ int check_rtx_frame_callback(session_subsystem_context_t* session_context, sessi
     long int rnd_boundary = (long int) (test_context->forwarding_probability * RAND_MAX);
 
     if (random() > rnd_boundary) {
-        LOG_SESSION(LOG_INFO, session, "Packet dropped: gen_seq=%d ack=%d", metadata->generation_sequence, metadata->ack);
-    } else {
-        if (test_context->forwarding_timeout < 0) {
-            exec_session_decoder_add(frame);
-        } else {
-            DIE_SESSION(session, "Forwarding timeouts are unsupported!");
-        }
+        LOG_PACKET(LOG_INFO, frame, "DROPPED");
+        return 0;
     }
+
+    if (test_context->max_forwarding_timeout <= 0) {
+        LOG_PACKET(LOG_INFO, frame, "FORWARD");
+        exec_session_decoder_add(frame);
+        return 0;
+    }
+
+    s64 timeout_val = (s64) (((double) random() / RAND_MAX) * (double) test_context->max_forwarding_timeout);
+    LOG_PACKET_DELAY(LOG_INFO, frame, "FORWARD", timeout_val);
+
+    schedule_forwarding_timeout(frame, timeout_val);
 
     return 0;
 }
 
 int check_os_frame_callback(session_subsystem_context_t* context, session_t* session, u16 ether_type, u8* payload, size_t length) {
     (void) context;
-
     os_frame_entry_t *entry, *last;
     int index = 0;
+
+    if (check_context.current_test == NULL) {
+        LOG(LOG_WARNING, "check_rtx_frame_callback() was called without a test_context.");
+        return 0;
+    }
 
     entry = calloc(1, sizeof(os_frame_entry_t));
     if (entry == NULL) {
@@ -393,10 +518,6 @@ int check_os_frame_callback(session_subsystem_context_t* context, session_t* ses
     entry->length = length;
 
     list_add_tail(&entry->list, &os_frame_entries);
-
-    if (os_frame_await_running) {
-        create_os_await_timeout();
-    }
 
     return 0;
 }

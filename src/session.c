@@ -263,16 +263,24 @@ enum SESSION_TYPE session_get_type(session_t* session) {
 }
 
 void session_free(session_t* session) {
+    int ret;
+
     list_del(&session->list);
 
     generation_list_free(&session->generations_list);
 
     if (session->timeouts.destroy != NULL) {
-        timeout_delete(session->timeouts.destroy);
+        ret = timeout_delete(session->timeouts.destroy);
+        if (ret != 0) {
+            DIE("Failed session_free() to timeout_delete(): %s", strerror(errno));
+        }
     }
 
     if (session->timeouts.ack != NULL) {
-        timeout_delete(session->timeouts.ack);
+        ret = timeout_delete(session->timeouts.ack);
+        if (ret != 0) {
+            DIE("Failed session_free() to timeout_delete(): %s", strerror(errno));
+        }
     }
 
     // TODO potential logging file unlink (do we want/need to [re]implement that?)
@@ -446,7 +454,7 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
  */
 static void session_packet_metadata(coded_packet_metadata_t* metadata, session_t* session, bool ack) {
     metadata->sid = *(session_get_id(session));
-    metadata->generation_sequence = 0; // this will be set by generation_list_next_encoded_frame afterwards
+    metadata->generation_sequence = 0; // this will be set by generation_next_encoded_frame() afterwards
     metadata->window_id = generation_window_id(&session->generations_list);
     metadata->gf = session->context->moepgf_type;
     metadata->ack = ack;

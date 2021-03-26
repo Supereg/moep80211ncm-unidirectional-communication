@@ -8,7 +8,9 @@
 // Created by Andreas Bauer on 22.02.21.
 //
 
+#include "check_session.h"
 #include "check_suites.h"
+
 #include "check_utils.h"
 
 #include <stdio.h>
@@ -193,7 +195,7 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example0, strlen(example0));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    await_os_frame();
+    await_fully_decoded();
 
     // TODO shortcut to assert received packet
     received = peek_os_frame_entry(0);
@@ -204,7 +206,7 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example1, strlen(example1));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    await_os_frame();
+    await_fully_decoded();
 
     received = peek_os_frame_entry(1);
     ck_assert_int_eq(received->length, strlen(example1));
@@ -215,7 +217,7 @@ START_TEST(test_session_coding_simple_two_nodes) {
     ret = session_encoder_add(source, CHECK_ETHER_TYPE, (u8*) example2, strlen(example2));
     ck_assert_int_eq(ret, EXIT_SUCCESS);
 
-    await_os_frame();
+    await_fully_decoded();
 
     received = peek_os_frame_entry(2);
     ck_assert_int_eq(received->length, strlen(example2));
@@ -226,7 +228,7 @@ START_TEST(test_session_coding_simple_two_nodes) {
 }
 END_TEST
 
-// TODO packet loss tests + randomized packets tests (+multiple session_encoder_add per await_os_frame())
+// TODO packet loss tests + randomized packets tests (+multiple session_encoder_add per await_fully_decoded())
 
 /* -------------------------------------------------------------------------------------------- */
 
@@ -257,4 +259,10 @@ Suite* session_suite() {
     suite_add_tcase(suite, session_logging);
 
     return suite;
+}
+
+/* ---------------- Internal session.c functionality exposed to unit test API ----------------- */
+
+struct list_head* session_generation_list(session_t* session) {
+    return &session->generations_list;
 }
