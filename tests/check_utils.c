@@ -78,7 +78,7 @@ do { \
 struct stored_rtx_frame {
     session_t* session;
     coded_packet_metadata_t metadata;
-    u8 payload[CHECK_MAX_PDU];
+    u8 payload[2* CHECK_MAX_PDU];
     size_t length;
 };
 
@@ -149,12 +149,32 @@ check_test_context_t* test_init(
     return context;
 }
 
+bool test_initialized() {
+    return check_context.current_test != NULL;
+}
+
 void test_free(check_test_context_t* context) {
     struct queued_forwarding_timeout *queued_timeout, *tmp;
     int ret;
 
     assert(check_context.current_test == context);
     check_context.current_test = NULL;
+
+    // there is the edge case that the timeout signal is already queued
+    // when we want to free the test. Thus we just call clear as first step
+    // run await second, to ensure all pending signals are processed
+    // and timeout_execs don't work on a already deleted timeout.
+    // As a last step we call timeout_delete in the second loop below.
+    list_for_each_entry(queued_timeout, &context->forwarding_timeouts, list) {
+        ret = timeout_clear(queued_timeout->timeout);
+        if (ret != 0) {
+            DIE("Failed test_free() to timeout_clear(): %s", strerror(errno));
+        }
+    }
+
+    if (context->max_forwarding_timeout >= 0) {
+        await((int) context->max_forwarding_timeout);
+    }
 
     list_for_each_entry_safe(queued_timeout, tmp, &context->forwarding_timeouts, list) {
         ret = timeout_delete(queued_timeout->timeout);
@@ -214,6 +234,12 @@ void close_check_utils() {
     memset(&check_context, 0, sizeof(struct check_context));
 
     FREE_LIST(&os_frame_entries);
+}
+
+static bool session_fully_decoded(session_t* session) {
+    struct list_head* generation_list;
+    generation_list = session_generation_list(session);
+    return generation_list_remote_decoded(generation_list);
 }
 
 static int exec_queued_timers(struct check_context context) {
@@ -290,7 +316,7 @@ static void do_await(timeout_cb_t callback, s64 timeout_ms) {
 
     ret = timeout_settime(timeout, 0, timeout_msec(timeout_ms, 0));
     if (ret != 0) {
-        DIE("await() failed to timeout_settime(): %s", strerror(errno));
+        DIE("await() failed to timeout_settime(%ld): %s", timeout_ms, strerror(errno));
     }
 
     run_loop();
@@ -302,11 +328,21 @@ static void do_await(timeout_cb_t callback, s64 timeout_ms) {
 }
 
 void await(int ms) {
+    ck_assert_msg(ms >= 0, "Received await time smaller than zero: %d", ms);
     do_await(await_finish_callback, ms);
 }
 
 void await_fully_decoded() {
     int ret;
+
+    assert(check_context.current_test != NULL && "await_fully_decoded() can only run with valid test context!");
+
+    if (session_fully_decoded(check_context.current_test->source)) {
+        // even though we can return immediately, run the run_loop
+        // do dequeue any pending signals.
+        await(20); // TODO magic constant
+        return; // no need to wait, source knows everything was decoded by the destination
+    }
 
     // make check_os_frame_callback() call schedule_os_await_timeout() to gracefully exit the run loop
     decodable_await_running = true;
@@ -337,28 +373,6 @@ static void schedule_os_await_timeout() {
     }
 }
 
-// ----------------- below are all "simple list operations" -------------------
-
-os_frame_entry_t* pop_os_frame_entry() {
-    os_frame_entry_t* entry;
-    POP_ENTRY(&os_frame_entries, entry, os_frame_entry_t, "os_frame");
-    return entry;
-}
-
-os_frame_entry_t* peek_os_frame_entry(int index) {
-    os_frame_entry_t* entry;
-    PEEK_ENTRY(&os_frame_entries, entry, index, "os_frame");
-    return entry;
-}
-
-// ------- below are the session context callbacks which must be hooked -------
-
-static bool session_fully_decoded(session_t* session) {
-    struct list_head* generation_list;
-    generation_list = session_generation_list(session);
-    return generation_list_remote_decoded(generation_list);
-}
-
 static void exec_session_decoder_add(struct stored_rtx_frame* frame) {
     int ret;
 
@@ -373,8 +387,6 @@ static void exec_session_decoder_add(struct stored_rtx_frame* frame) {
             schedule_os_await_timeout();
         }
     }
-
-    free(frame);
 }
 
 static int forwarding_timeout_callback(timeout_t timeout, u32 overrun, void* data) {
@@ -398,6 +410,7 @@ static int forwarding_timeout_callback(timeout_t timeout, u32 overrun, void* dat
 
     exec_session_decoder_add(queued_timeout->frame);
 
+    free(queued_timeout->frame);
     list_del(&queued_timeout->list);
     free(queued_timeout);
 
@@ -432,6 +445,24 @@ static void schedule_forwarding_timeout(struct stored_rtx_frame* frame, s64 time
     list_add_tail(&queued_timeout->list, &check_context.current_test->forwarding_timeouts);
 }
 
+bool os_frame_entries_emtpy() {
+    return list_empty(&os_frame_entries);
+}
+
+os_frame_entry_t* pop_os_frame_entry() {
+    os_frame_entry_t* entry;
+    POP_ENTRY(&os_frame_entries, entry, os_frame_entry_t, "os_frame");
+    return entry;
+}
+
+os_frame_entry_t* peek_os_frame_entry(int index) {
+    os_frame_entry_t* entry;
+    PEEK_ENTRY(&os_frame_entries, entry, index, "os_frame");
+    return entry;
+}
+
+// ------- below are the session context callbacks which must be hooked -------
+
 int check_rtx_frame_callback(session_subsystem_context_t* session_context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
     (void) session_context;
     check_test_context_t* test_context;
@@ -451,7 +482,7 @@ int check_rtx_frame_callback(session_subsystem_context_t* session_context, sessi
 
     memcpy(&frame->metadata, metadata, sizeof(coded_packet_metadata_t));
 
-    ck_assert_msg(length <= sizeof(frame->payload), "Received frame inside check_rtx_frame_callback() exceed the length of stored_rtx_frame");
+    ck_assert_msg(length <= sizeof(frame->payload), "Received frame inside check_rtx_frame_callback() exceed the length of stored_rtx_frame: %zu", length);
     memcpy(frame->payload, payload, length);
     frame->length = length;
 
@@ -467,22 +498,26 @@ int check_rtx_frame_callback(session_subsystem_context_t* session_context, sessi
         DIE_SESSION(session, "Unknown session!");
     }
 
-    long int rnd_boundary = (long int) (test_context->forwarding_probability * RAND_MAX);
+    // TODO RAND_MAX is non inclusive
+    long int rnd_boundary = (long int) (test_context->forwarding_probability * (RAND_MAX - 1));
 
     if (random() > rnd_boundary) {
         LOG_PACKET(LOG_INFO, frame, "DROPPED");
+        free(frame);
         return 0;
     }
 
     if (test_context->max_forwarding_timeout <= 0) {
         LOG_PACKET(LOG_INFO, frame, "FORWARD");
         exec_session_decoder_add(frame);
+        free(frame);
         return 0;
     }
 
-    s64 timeout_val = (s64) (((double) random() / RAND_MAX) * (double) test_context->max_forwarding_timeout);
+    s64 timeout_val = (s64) (((double) random() / (RAND_MAX - 1)) * (double) test_context->max_forwarding_timeout);
     LOG_PACKET_DELAY(LOG_INFO, frame, "FORWARD", timeout_val);
 
+    // the timeout handler is responsible to free the frame.
     schedule_forwarding_timeout(frame, timeout_val);
 
     return 0;

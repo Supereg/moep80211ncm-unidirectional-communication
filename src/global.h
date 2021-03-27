@@ -23,7 +23,7 @@
 #define GENERATION_MAX_WINDOW		32
 #define GENERATION_WINDOW		4
 #define GENERATION_MAX_SIZE		254
-#define GENERATION_SIZE			128
+#define GENERATION_SIZE			128 // TODO should we halve that? as we only have one direction now?
 
 #define QDELAY_UPDATE_WEIGHT		0.5
 //#define WMEWMA_WEIGHT			0.9

@@ -330,6 +330,17 @@ int generation_space_remaining(const generation_t* generation) {
     return size;
 }
 
+int generation_list_space_remaining(struct list_head* generation_list) {
+    generation_t* generation;
+    int count = 0;
+
+    list_for_each_entry(generation, generation_list, list) {
+        count += generation_space_remaining(generation);
+    }
+
+    return count;
+}
+
 bool generation_is_complete(const generation_t* generation) {
     // "complete" in the sense of full coding matrix + fully decoded
     switch (generation->session_type) {
