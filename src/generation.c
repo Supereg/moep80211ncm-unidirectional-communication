@@ -218,11 +218,6 @@ void generation_list_free(struct list_head *generation_list) {
 
 
 static void generation_trigger_event(generation_t* generation, enum GENERATION_EVENT event, void* result) {
-    if (result != NULL) {
-        // calling function expects! a result
-        assert(generation->event_handler != NULL);
-    }
-
     if (generation->event_handler != NULL) {
         generation->event_handler(generation, event, generation->event_data, result);
     }
@@ -246,7 +241,7 @@ static void tx_dec(generation_t* generation) {
         tx->redundancy = 0.0;
     }
 
-    double session_redundancy = 0;
+    double session_redundancy = 1.0; // default value when no event handler is defined
     generation_trigger_event(generation, GENERATION_EVENT_SESSION_REDUNDANCY, &session_redundancy);
 
     assert(session_redundancy >= 1);

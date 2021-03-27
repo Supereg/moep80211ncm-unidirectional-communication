@@ -54,14 +54,44 @@ struct generation;
 /// Opaque type for a `generation` struct
 typedef struct generation generation_t;
 
+/**
+ * Defines all the possible generation event types.
+ * The event system was created to fully decouple the generation.c code
+ * from the session.c code e.g. making it easier to unit test.
+ * It should be fairly simple to incorporate additional events in the future.
+ */
 enum GENERATION_EVENT {
+    /**
+     * Event triggered when the generation should be queued for a ACK transmission.
+     * Event doesn't pass a `result` pointer.
+     */
     GENERATION_EVENT_ACK,
+    /**
+     * Event triggered when the generation wants to send out a new coded packet.
+     * Event doesn't pass a `result` pointer.
+     */
     GENERATION_EVENT_ENCODED,
+    /**
+     * Event triggered before the generation is cleared and its generation sequence number is advanced.
+     * Event doesn't pass a `result` pointer.
+     */
     GENERATION_EVENT_RESET,
+    /**
+     * Event triggered when the generation wants to retrieve the current session redundancy,
+     * calculated using the current link quality.
+     * Event passes a `double` pointer to the `result` parameter to which the result must be written.
+     */
     GENERATION_EVENT_SESSION_REDUNDANCY,
 };
 
-// TODO document the result part (might be NULL)
+/**
+ * `generation_event_handler` function pointer.
+ * @param generation - The `generation_t` which triggered that event.
+ * @param event - The event (see `enum GENERATION_EVENT`).
+ * @param data - The `event_data` pointer passed to `generation_init`.
+ * @param result - Some events expect a result to be returned. The result must be written into the `result` pointer.
+ *      For events not expecting a result a NULL pointer is passed.
+ */
 typedef void (*generation_event_handler)(generation_t* generation, enum GENERATION_EVENT event, void* data, void* result);
 
 /**
@@ -73,7 +103,8 @@ typedef void (*generation_event_handler)(generation_t* generation, enum GENERATI
  * @param generation_size - The generation size (= amount of packets in one generation).
  * @param max_pdu_size - The maximum pdu size (= the maximum frame size).
  * @param alignment - Memory alignment of the coding matrix, passed to libmoeprlnc.
- * // TODO document the two new parameters?
+ * @param event_handler - Pointer to the `generation_event_handler`. Can be NULL to not register an event handler.
+ * @param event_data - Pointer passed to the `data` argument of an `generation_event_handler` on every triggered event.
  * @return The created `generation_t`, guaranteed to be non NULL.
  */
 generation_t* generation_init(
@@ -100,7 +131,6 @@ void generation_list_free(struct list_head *generation_list);
 
 /**
  * Adds a source frame (e.g. received from the OS) to the next available generation in the provided generation list.
- * This might then lead to the `session_subsystem_context_t.rtx_callback` being called with the encoded frame.
  *
  * @param generation_list - The `generation` list, to choose the next available generation from.
  * @param buffer - Pointer to the given payload.
@@ -110,19 +140,21 @@ void generation_list_free(struct list_head *generation_list);
 NCM_GENERATION_STATUS generation_list_encoder_add(struct list_head *generation_list, u8* buffer, size_t length);
 
 /**
- * Creates the next encoded packet for the given generation list.
- * @param generation_list - The list of generations to choose a generation from.
+ * Creates the next encoded packet for the given generation.
+ *
+ * @param generation - The `generation` to generate a coded packet for.
  * @param max_length - Maximum PDU length.
- * @param metadata - Pointer to a `coded_packet_metadata_t` to **collect** and store the given metadata.
+ * @param generation_sequence - Pointer to which the `u16` generation sequence number is written to,
+ *      if (and ONLY if) the function returns successfully.
  * @param buffer - Pointer to a buffer where the payload should be stored.
  * @param length_encoded - Pointer to store the length of the encoded payload.
- * @return Returns an `NCM_GENERATION_STATUS`. Note parameters `metadata` and `length_encoded` are only written to on a `GENERATION_STATUS_SUCCESS`.
+ * @return Returns an `NCM_GENERATION_STATUS`.
+ *  Note: parameters `generation_sequence` and `length_encoded` are only written to on a `GENERATION_STATUS_SUCCESS`.
  */
-// TODO NCM_GENERATION_STATUS generation_list_next_encoded_frame(struct list_head* generation_list, size_t max_length, coded_packet_metadata_t* metadata, u8* buffer, size_t* length_encoded);
 NCM_GENERATION_STATUS generation_next_encoded_frame(generation_t* generation, size_t max_length, u16* generation_sequence, u8* buffer, size_t* length_encoded);
 
 /**
- * Used to retrieve the next decodable frame of the list of generations.
+ * Used to retrieve the next decoded frame of the list of generations.
  *
  * @param generation_list - The list to iterate over the next available decodable frame.
  * @param max_length - The maximum size of the provided `buffer`.
@@ -159,6 +191,10 @@ int generation_index(struct list_head* generations_list, generation_t* generatio
  */
 struct generation_packet_counter* generation_get_counters(generation_t* generation);
 
+/**
+ * @param generation - The `generation_t` to check.
+ * @return Returns true if the given generation holds no information.
+ */
 bool generation_empty(const generation_t* generation);
 
 /**
