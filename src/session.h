@@ -115,6 +115,7 @@ typedef struct session_subsystem_context {
     const int generation_window_size;
     const enum MOEPGF_TYPE moepgf_type;
 
+
     // TODO int redundancy_schema; (validValues: 2, 0)
 
     u8 local_address[IEEE80211_ALEN];
@@ -127,6 +128,13 @@ typedef struct session_subsystem_context {
      * Called when a given frame was successfully decoded and should be handed over to the OS.
      */
     decoded_payload_callback os_callback;
+
+    /**
+     * Ported from the bidirectional session implementation.
+     * Defines the redundancy scheme used in `session_redundancy`.
+     * scheme=3 (relay scheme/3-node setup) is currently not supported.
+     */
+    int redundancy_scheme;
 
     /**
      * Linked list to store all registered sessions.
@@ -198,7 +206,8 @@ session_subsystem_context_t* session_subsystem_init(
     enum MOEPGF_TYPE moepgf_type,
     u8* hw_address,
     encoded_payload_callback rtx_callback,
-    decoded_payload_callback os_callback);
+    decoded_payload_callback os_callback,
+    int redundancy_scheme);
 
 /**
  * Shutdown the session subsystem. Closing all registered sessions and freeing the global `session_subsystem_context_t`.

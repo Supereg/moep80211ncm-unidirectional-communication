@@ -51,6 +51,10 @@ jobs:
         run: make
         working-directory: ${{ env.build-directory }}
 
+      - name: clang-tidy
+        # TODO scan the whole src directory once we are properly integrated
+        run: clang-tidy -warnings-as-errors -ferror-limit=0 src/session.* src/generation.* tests/*.c tests/*.h -- -I./libmoepcommon/include -I./libmoepgf/include -I./libmoeprlnc/include -I./libjsm/include
+
       - name: Run NCM
         run: ./ncm --help
         working-directory: ${{ env.build-directory }}

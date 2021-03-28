@@ -86,7 +86,7 @@ START_TEST(test_generation_creation) {
     for (int i = 1; i < 10; i++) { // do some loops to check that sequence number is incremented properly
         loop_generation = check_generation_init(&check_generation_list, SOURCE, CHECK_GENERATION_SIZE);
         ck_assert_int_eq(loop_generation->sequence_number, i);
-        ck_assert_int_eq(generation_index(&check_generation_list, loop_generation), i);
+        ck_assert_int_eq(generation_index(loop_generation), i);
     }
 }
 END_TEST
@@ -132,7 +132,7 @@ START_TEST(test_generation_sequence_number) {
                           "seq=%d didn't match expected seq=%d at gen_index=%d",
                           entry->sequence_number, expected_seq, j);
 
-            ck_assert_int_eq(generation_index(&check_generation_list, entry), j);
+            ck_assert_int_eq(generation_index(entry), j);
 
             j++;
         }

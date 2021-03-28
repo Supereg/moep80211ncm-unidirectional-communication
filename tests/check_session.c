@@ -61,6 +61,32 @@ struct random_test_execution {
     struct list_head generated_packets;
 };
 
+/* ------------ TEST STUBS simulating any NCM module dependence ------------ */
+
+// neighbour.h
+double nb_ul_redundancy_stub_val = 1.0;
+double nb_ul_redundancy(const u8 *hwaddr) {
+    (void) hwaddr;
+    return nb_ul_redundancy_stub_val;
+}
+
+// neighbour.h
+double nb_ul_quality_stub_val = 1.0;
+double nb_ul_quality(const u8 *hwaddr, int *p, int *q) {
+    (void) hwaddr;
+    (void) p;
+    (void) q;
+    return nb_ul_quality_stub_val;
+}
+
+// qdelay.h
+int qdelay_packet_cnt_stub_val = 0;
+int qdelay_packet_cnt() {
+    return qdelay_packet_cnt_stub_val;
+}
+
+/* ------------------------------------------------------------------------- */
+
 /**
  * Setup is called before **every** test of a `TCase` (Test case).
  * It must be registered to the `TCase` using `tcase_add_checked_fixture`.
@@ -75,21 +101,24 @@ void test_session_setup() {
         CHECK_GF_TYPE,
         address_src,
         check_rtx_frame_callback,
-        check_os_frame_callback);
+        check_os_frame_callback,
+        0);
     intermediate_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_intermediate,
         check_rtx_frame_callback,
-        check_os_frame_callback);
+        check_os_frame_callback,
+        0);
     dst_context = session_subsystem_init(
         CHECK_GENERATION_SIZE,
         CHECK_GENERATION_WINDOW_SIZE,
         CHECK_GF_TYPE,
         address_dst,
         check_rtx_frame_callback,
-        check_os_frame_callback);
+        check_os_frame_callback,
+        0);
 }
 
 /**
@@ -350,7 +379,7 @@ START_TEST(test_session_coding_random_two_nodes) {
     session_t* destination;
     timeout_t packet_timeout;
     int ret;
-    struct generated_packet* generated_packet;
+    struct generated_packet *generated_packet, *tmp;
     u32 expected_packet_num;
     u32 packet_num = 0;
     os_frame_entry_t* os_frame;
@@ -371,6 +400,10 @@ START_TEST(test_session_coding_random_two_nodes) {
     *(int*) &src_context->generation_window_size = 4;
     *(int*) &dst_context->generation_size = 64;
     *(int*) &dst_context->generation_window_size = 4;
+
+    // this value is used in the `session_redundancy` function
+    // which influences the rtx timeout value
+    nb_ul_quality_stub_val = execution.config->forwarding_probability;
 
     source = session_register(src_context, address_src, address_dst);
     ck_assert_int_eq(source->type, SOURCE);
@@ -421,8 +454,7 @@ START_TEST(test_session_coding_random_two_nodes) {
     // if nothing was received/sent something is faulty
     ck_assert(!os_frame_entries_emtpy());
 
-    while (!list_empty(&execution.generated_packets)) {
-        generated_packet = list_first_entry(&execution.generated_packets, struct generated_packet, list);
+    list_for_each_entry_safe(generated_packet, tmp, &execution.generated_packets, list) {
         // as explained in random_coding_packet_timeout_callback,
         // first 4 bytes encodes packet num
         expected_packet_num = ((u32*) generated_packet->buffer)[0];
