@@ -154,7 +154,7 @@ generation_t* generation_init(
     generation->rlnc_block = rlnc_block_init(generation_size, max_pdu_size, alignment, moepgf_type);
     if (generation->rlnc_block == NULL) {
         free(generation);
-        DIE_GENERATION(generation, "generation_init() Failed to rlnc_block_init(): %s", strerror(errno));
+        DIE("generation_init() Failed to rlnc_block_init(): %s [gen_seq=%d]", strerror(errno), sequence_number);
     }
 
     *(generation_event_handler*) &generation->event_handler = event_handler;
@@ -173,7 +173,7 @@ generation_t* generation_init(
         ret = timeout_create(CLOCK_MONOTONIC, &tx->timeout, generation_tx_callback, generation);
         if (ret != 0) {
             generation_free(generation);
-            DIE_GENERATION(generation, "generation_init() Failed to timeout_create() for tx timer: %s", strerror(errno));
+            DIE("generation_init() Failed to timeout_create() for tx timer: %s [gen_seq=%d]", strerror(errno), sequence_number);
         }
 
         tx->src_count = 0;
