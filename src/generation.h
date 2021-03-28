@@ -217,4 +217,6 @@ bool generation_remote_decoded(const generation_t* generation);
 
 bool generation_list_remote_decoded(struct list_head* generation_list);
 
+int generation_list_space_remaining(struct list_head* generations_list);
+
 #endif //GENERATION_H

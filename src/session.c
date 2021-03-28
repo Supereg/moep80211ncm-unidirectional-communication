@@ -268,6 +268,20 @@ enum SESSION_TYPE session_get_type(session_t* session) {
     return session->type;
 }
 
+static int session_space_remaining(session_t* session) {
+    return generation_list_space_remaining(&session->generations_list);
+}
+
+int session_context_min_space_remaining(session_subsystem_context_t* context) {
+    session_t* s;
+	int ret = GENERATION_SIZE;
+
+	list_for_each_entry(s, &context->sessions_list, list)
+		ret = min(session_space_remaining(s), ret);
+
+	return ret;
+}
+
 void session_free(session_t* session) {
     int ret;
 

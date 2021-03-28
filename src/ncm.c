@@ -66,6 +66,7 @@ const char *argp_program_version = "ncm 2.0";
 const char *argp_program_bug_address = "<guenther@tum.de>";
 
 static char args_doc[] = "IF FREQ";
+static session_subsystem_context_t* session_context;
 
 static int send_beacon(timeout_t t, u32 overrun, void *data);
 
@@ -483,7 +484,7 @@ send_beacon(timeout_t t, u32 overrun, void *data)
 	(void) data;
 	(void) t;
 	(void) overrun;
-	// TODO session_log_state();
+	session_log_state(session_context);
 
 	moep_frame_t frame;
 	struct moep80211_hdr *hdr;
@@ -593,6 +594,10 @@ ncm_frame_type(moep_frame_t frame)
 	if (ext)
 		return NCM_CODED;
 
+	ext = moep_frame_moep_hdr_ext(frame, NCM_HDR_UNIDIRECTIONAL_CODED);
+	if (ext)
+		return NCM_CODED_UNIDIR;
+
 	ext = moep_frame_moep_hdr_ext(frame, NCM_HDR_BCAST);
 	if (ext)
 		return NCM_DATA;
@@ -604,19 +609,77 @@ ncm_frame_type(moep_frame_t frame)
 	return NCM_INVALID;
 }
 
+static void
+set_coded_header(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet_metadata_t* metadata) {
+    memcpy(coded_header->session_id, &(metadata->sid), sizeof(session_id));
+    coded_header->sequence_number = metadata->generation_sequence;
+    coded_header->window_id = metadata->window_id;
+    coded_header->gf = metadata->gf;
+    coded_header->ack = metadata->ack;
+    coded_header->window_size = metadata->window_size;
+}
+
+static void
+set_coded_metadata(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet_metadata_t* metadata) {
+    memcpy(&(metadata->sid), coded_header->session_id, sizeof(session_id));
+    metadata->generation_sequence = coded_header->sequence_number;
+    metadata->window_id = coded_header->window_id;
+    metadata->gf = coded_header->gf;
+    metadata->ack = coded_header->ack;
+    metadata->window_size = coded_header->window_size;
+}
+
 int
-rad_tx(moep_frame_t f)
+rad_tx(moep_frame_t frame)
 {
 	int ret;
 
-	ncm_frame_init_l1hdr(f);
-	ncm_frame_init_l2hdr(f);
-	ncm_frame_set_txseq(f);
+	ncm_frame_init_l1hdr(frame);
+	ncm_frame_init_l2hdr(frame);
+	ncm_frame_set_txseq(frame);
 
-	if (0 > (ret = moep_dev_tx(cfg.rad.dev, f)))
+	if (0 > (ret = moep_dev_tx(cfg.rad.dev, frame)))
 		LOG(LOG_ERR, "moep80211_tx() failed: %s", strerror(errno));
 
 	return ret;
+}
+
+int tx_encoded_frame(struct session_subsystem_context* context, session_t* session, coded_packet_metadata_t* metadata, u8* payload, size_t length) {
+    moep_dev_t device = cfg.rad.dev;
+    moep_frame_t frame;
+    struct ncm_hdr_unidirectional_coded* coded_header;
+    struct moep80211_hdr *hdr;
+	int ret;
+
+    frame = moep_dev_frame_create(device);
+
+    coded_header = (struct ncm_hdr_unidirectional_coded*) moep_frame_add_moep_hdr_ext(
+        frame,
+        (enum moep_hdr_type) NCM_HDR_UNIDIRECTIONAL_CODED,
+        sizeof(struct ncm_hdr_unidirectional_coded));
+    set_coded_header(coded_header, metadata);
+
+    if (moep_frame_set_payload(frame, payload, length) == NULL) {
+        LOG_SESSION(LOG_WARNING, session, "Failed to set frame payload of next encoded frame: %s", strerror(errno));
+        moep_frame_destroy(frame);
+        return -1;
+    }
+
+    hdr = moep_frame_moep80211_hdr(frame);
+    if (hdr == NULL) {
+        LOG_SESSION(LOG_WARNING, session, "Failed to init moep802211 hdr of next encoded frame: %s", strerror(errno));
+        moep_frame_destroy(frame);
+        return -1;
+    }
+
+    memset(hdr->ra, 0xff, IEEE80211_ALEN);
+    memcpy(hdr->ta, context->local_address, IEEE80211_ALEN);
+
+	ret = rad_tx(frame);
+
+    moep_frame_destroy(frame);
+
+    return ret;
 }
 
 void
@@ -639,20 +702,51 @@ int
 tap_tx(moep_frame_t f)
 {
 	int ret;
+
 	ret = moep_dev_tx(cfg.tap.dev, f);
 	if (0 > ret) {
 		LOG(LOG_ERR, "moep80211_tx() failed: %s", strerror(errno));
 	}
 
-//	write_csv_data(f);
-
 	return ret;
+}
+
+int tx_decoded_frame(struct session_subsystem_context* context, session_t* session, u16 ether_type, u8* payload, size_t length) {
+    session_id* session_id;
+    moep_frame_t  frame;
+    struct ether_header* ether_header;
+	int ret;
+
+    session_id = session_get_id(session);
+
+    frame = moep_frame_ieee8023_create();
+    if (frame == NULL) {
+        LOG_SESSION(LOG_WARNING, session, "Failed to init ieee8023 frame of decoded frame: %s", strerror(errno));
+        return -1;
+    }
+
+    ether_header = moep_frame_ieee8023_hdr(frame);
+    if (ether_header == NULL) {
+        LOG_SESSION(LOG_WARNING, session, "Failed to init ether_header on ieee8023 frame: %s", strerror(errno));
+        return -1;
+    }
+
+    ether_header->ether_type = ether_type;
+    memcpy(ether_header->ether_shost, session_id->source_address, IEEE80211_ALEN);
+    memcpy(ether_header->ether_dhost, session_id->destination_address, IEEE80211_ALEN);
+
+    moep_frame_set_payload(frame, payload, length);
+
+	ret = tap_tx(frame);
+
+    moep_frame_destroy(frame);
+
+    return ret;
 }
 
 static int _set_tap_status(void *data, int status)
 {
-    DIE("session_min_remaining_space() unsupported!");
-	// TODO status = status && session_min_remaining_space();
+	status = status && session_context_min_space_remaining(session_context);
 	return moep_dev_set_rx_status(cfg.tap.dev, status);
 }
 
@@ -675,9 +769,6 @@ run()
 
 	moep_run(signal_handler, NULL);
 
-	DIE("session_cleanup() not supported!");
-	// TODO session_cleanup();
-
 	timeout_delete(beacon_timeout);
 }
 
@@ -685,7 +776,7 @@ static int
 taph(moep_dev_t dev, moep_frame_t frame)
 {
 	(void) dev;
-	u8 sid[2*IEEE80211_ALEN];
+	u8 *payload;
 	struct ether_header *etherptr, ether;
 	struct moep80211_hdr *hdr;
 	struct moep_hdr_pctrl *pctrl;
@@ -729,22 +820,13 @@ taph(moep_dev_t dev, moep_frame_t frame)
 		return 0;
 	}
 
-	DIE("sending coded packets isn't yet supported!");
-
-	/*
-	// set sid to session id (chose lexicographically smaller value of shost/dhost)
-	if (0 > session_sid(sid, ether.ether_shost, ether.ether_dhost))
-		DIE("session_sid() failed: %s", strerror(errno));
-
 	// create new session if none can be found
-	if (!(s = session_find(sid)))
-		s = session_register(&cfg.session, NULL, sid);
+	s = session_register(session_context, ether.ether_shost, ether.ether_dhost);
 
 	// encode frame
-	session_encoder_add(s, frame);
-    */
+	payload = moep_frame_get_payload(frame, &len);
+	session_encoder_add(s, ether.ether_type, payload, len);
 
-	// dont send frame??
 	set_tap_status();
 
 	moep_frame_destroy(frame);
@@ -760,11 +842,15 @@ radh(moep_dev_t dev, moep_frame_t frame)
 	struct moep80211_hdr *hdr;
 	struct moep_hdr_pctrl *pctrl;
 	struct ncm_hdr_bcast *bcast;
-	struct ncm_hdr_coded *coded;
+	struct ncm_hdr_unidirectional_coded *coded;
 	struct ncm_beacon_payload *bcnp;
 	struct moep80211_radiotap *rt;
 	struct ether_header *etherptr, ether;
+	session_id* sess_id;
+	coded_packet_metadata_t metadata;
 	size_t len;
+	size_t coded_length;
+	u8* coded_payload;
 	session_t* s;
 
 	hdr = moep_frame_moep80211_hdr(frame);
@@ -773,15 +859,12 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		goto end;
 	}
 
-	// neighbor stuff, see exercises
 	(void) nb_update_seq(hdr->ta, hdr->txseq);
 
 	(void) moep_frame_get_payload(frame, &len);
 
-	// no simulator mode (per default we shouldnt be in simulator mode)
 	if (!cfg.sim.enabled) {
 		rt = moep_frame_radiotap(frame);
-		// remove FCS if present
 		if (rt->flags & IEEE80211_RADIOTAP_F_FCS) {
 			if (len < 4) {
 				LOG(LOG_ERR, "after clipping assumed FCS, "\
@@ -802,7 +885,6 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		bcast = (struct ncm_hdr_bcast *)
 			moep_frame_moep_hdr_ext(frame, NCM_HDR_BCAST);
 
-		// look up broadcast ID in known broadcasts and add if necessary
 		if (bcast && !bcast_known(bcast->id)) {
 			bcast_add(bcast->id);
 			rad_tx(frame);
@@ -811,7 +893,6 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		pctrl = (struct moep_hdr_pctrl *)
 			moep_frame_moep_hdr_ext(frame, MOEP_HDR_PCTRL);
 
-		// copy all data into a new ethernet frame
 		memcpy(ether.ether_dhost, hdr->ra, IEEE80211_ALEN);
 		memcpy(ether.ether_shost, hdr->ta, IEEE80211_ALEN);
 		ether.ether_type = htobe16(le16toh(pctrl->type));
@@ -821,23 +902,27 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		etherptr = moep_frame_ieee8023_hdr(frame);
 		memcpy(etherptr, &ether, sizeof(ether));
 
-		// give to OS
 		tap_tx(frame);
 		break;
 
 	case NCM_CODED:
-		coded = (struct ncm_hdr_coded *)
-			moep_frame_moep_hdr_ext(frame, NCM_HDR_CODED);
+		LOG(LOG_ERR, "bidir coded packet received, unsupported!");
+		break;
 
-		// TODO support
-		DIE("Receiving NCM_CODED packets isn't supported!");
+	case NCM_CODED_UNIDIR:
+		coded = (struct ncm_hdr_unidirectional_coded *)
+			moep_frame_moep_hdr_ext(frame, NCM_HDR_UNIDIRECTIONAL_CODED);
+		if (!(coded)) {
+			LOG(LOG_ERR, "no extension header");
+			break;
+		}
+		coded_payload = moep_frame_get_payload(frame, &coded_length);
 
-		/*
-		if (!(s = session_find(coded->sid)))
-			s = session_register(&cfg.session, NULL, coded->sid);
+		sess_id = (session_id *) &(coded->session_id);
+		s = session_register(session_context, sess_id->source_address, sess_id->destination_address);
+		set_coded_metadata(coded, &metadata);
 
-		session_decoder_add(s, frame);
-		*/
+		session_decoder_add(s, &metadata, coded_payload, coded_length);
 		break;
 
     case NCM_BEACON:
@@ -998,6 +1083,15 @@ main(int argc, char **argv)
 			ether_ntoa((const struct ether_addr *)cfg.hwaddr));
 	}
 
+	session_context = session_subsystem_init(
+        cfg.session.gensize,
+        cfg.session.winsize,
+        cfg.session.gftype,
+        cfg.hwaddr,
+        tx_encoded_frame,
+        tx_decoded_frame,
+        cfg.session.rscheme);
+
 	moep_dev_set_rx_handler(cfg.tap.dev, taph);
 	moep_dev_set_rx_handler(cfg.rad.dev, radh);
 
@@ -1009,6 +1103,8 @@ main(int argc, char **argv)
 				  NULL);
 
 	run();
+
+	session_subsystem_close(session_context);
 
 	moep_dev_close(cfg.rad.dev);
 	moep_dev_close(cfg.tap.dev);

@@ -12,12 +12,14 @@ enum headertypes {
 	NCM_HDR_CODED, // 0x21
 	NCM_HDR_BCAST, // 0x22
 	NCM_HDR_BEACON, // 0x23
+	NCM_HDR_UNIDIRECTIONAL_CODED, // new unidir hdr type
 	NCM_HDR_INVALID	= MOEP_HDR_COUNT-1
 };
 
 enum frametypes {
 	NCM_DATA = 0,
 	NCM_CODED,
+	NCM_CODED_UNIDIR,
 	NCM_BEACON,
 	NCM_INVALID,
 };
@@ -55,6 +57,19 @@ struct ncm_hdr_coded {
 	/// Meaning the array equals to `window_size`.
 	// TODO removed: struct generation_feedback fb[0];
 } __attribute__((packed));
+
+/**
+ * Header type NCM_HDR_UNIDIRECTIONAL_CODED
+ */
+struct ncm_hdr_unidirectional_coded {
+    struct moep_hdr_ext hdr;
+    u8 session_id[2 * IEEE80211_ALEN];
+    u16 sequence_number; // TODO document, no meaning for ack frames
+    u16 window_id;
+    u8 gf:2;
+    u8 ack:1;
+    u8 window_size:5;
+};
 
 struct ncm_hdr_bcast {
 	struct moep_hdr_ext hdr;
