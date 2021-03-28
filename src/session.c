@@ -228,14 +228,14 @@ session_t* session_register(session_subsystem_context_t* context, const u8* ethe
     ret = timeout_create(CLOCK_MONOTONIC, &session->timeouts.destroy, session_destroy_callback, session);
     if (ret != 0) {
         session_free(session);
-        DIE_SESSION(session, "session_register() failed to create destroy timeout: %s", strerror(errno));
+        DIE("session_register() failed to create destroy timeout: %s", strerror(errno));
     }
 
     if (session_type == DESTINATION || session_type == INTERMEDIATE) {
         ret = timeout_create(CLOCK_MONOTONIC, &session->timeouts.ack, session_ack_callback, session);
         if (ret != 0) {
             session_free(session);
-            DIE_SESSION(session, "session_register() failed to create ack timeout: %s", strerror(errno));
+            DIE("session_register() failed to create ack timeout: %s", strerror(errno));
         }
     }
 

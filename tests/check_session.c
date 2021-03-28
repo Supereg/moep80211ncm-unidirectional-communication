@@ -379,7 +379,7 @@ START_TEST(test_session_coding_random_two_nodes) {
     session_t* destination;
     timeout_t packet_timeout;
     int ret;
-    struct generated_packet* generated_packet;
+    struct generated_packet *generated_packet, *tmp;
     u32 expected_packet_num;
     u32 packet_num = 0;
     os_frame_entry_t* os_frame;
@@ -454,8 +454,7 @@ START_TEST(test_session_coding_random_two_nodes) {
     // if nothing was received/sent something is faulty
     ck_assert(!os_frame_entries_emtpy());
 
-    while (!list_empty(&execution.generated_packets)) {
-        generated_packet = list_first_entry(&execution.generated_packets, struct generated_packet, list);
+    list_for_each_entry_safe(generated_packet, tmp, &execution.generated_packets, list) {
         // as explained in random_coding_packet_timeout_callback,
         // first 4 bytes encodes packet num
         expected_packet_num = ((u32*) generated_packet->buffer)[0];
