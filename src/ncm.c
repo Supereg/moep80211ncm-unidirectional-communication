@@ -1086,12 +1086,13 @@ main(int argc, char **argv)
 	}
 
 	session_context = session_subsystem_init(
-        GENERATION_SIZE,
-        GENERATION_WINDOW,
-        MOEPGF,
+        cfg.session.gensize,
+        cfg.session.winsize,
+        cfg.session.gftype,
         cfg.hwaddr,
         tx_encoded_frame,
-        tx_decoded_frame);
+        tx_decoded_frame,
+        cfg.session.rscheme);
 
 	moep_dev_set_rx_handler(cfg.tap.dev, taph);
 	moep_dev_set_rx_handler(cfg.rad.dev, radh);
