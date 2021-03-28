@@ -769,8 +769,6 @@ run()
 
 	moep_run(signal_handler, NULL);
 
-	session_subsystem_close(session_context);
-
 	timeout_delete(beacon_timeout);
 }
 
@@ -1105,6 +1103,8 @@ main(int argc, char **argv)
 				  NULL);
 
 	run();
+
+	session_subsystem_close(session_context);
 
 	moep_dev_close(cfg.rad.dev);
 	moep_dev_close(cfg.tap.dev);
