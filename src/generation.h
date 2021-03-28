@@ -181,7 +181,7 @@ int generation_window_size(struct list_head* generations_list);
 
 u16 generation_window_id(struct list_head* generations_list);
 
-int generation_index(struct list_head* generations_list, generation_t* generation);
+int generation_index(const generation_t* generation);
 
 /**
  * Returns the statistics of the generation before it is being reset.
