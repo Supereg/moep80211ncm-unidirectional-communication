@@ -480,9 +480,14 @@ session_encoder_add(session_t* session,
 	//   to preserve ether type in our linear combinations of packets
 
 	buffer_length = payload_length + sizeof(*metadata);
-	// TODO we later need to transport the coding vectors + the buffer in a single PDU,
-	//   thus this check would somehow need to account for that
-	//   (the check will be repeated later [with also checking coding coefficients], but is probably better to catch that early?
+
+	// TODO we currently only check if the DATA of the buffer isn't bigger
+	//  than supported. Though, the coded packet will be later prefixed
+	//  with coding coefficients which MUST also fit into the payload.
+	//  This size check should also respect those.
+	//  RLNC library is currently not built to get to that information,
+	//  thus we skip that for now. The size is later checked anyways
+	//  when creating the coded packet.
 	if (buffer_length > GENERATION_MAX_PDU_SIZE) {
 		LOG_SESSION(LOG_WARNING, session,
 			"Received a source frame which is bigger than the maximum of %lu bytes",

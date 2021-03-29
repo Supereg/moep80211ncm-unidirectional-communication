@@ -773,7 +773,8 @@ generation_decoder_add(generation_t* generation, u8* buffer, size_t length)
 
 	if (generation->session_type == INTERMEDIATE) {
 		tx_dec(generation);
-		// TODO trigger a tx if not fully decoded?
+		// TODO intermediate nodes are currently unsupported,
+		//  one might need to trigger a tx here if not fully decoded
 	} else if (generation->session_type == DESTINATION) {
 		generation_trigger_event(generation, GENERATION_EVENT_ACK, NULL);
 		// count sent ack on receiver side
@@ -809,8 +810,9 @@ align_generation_window(struct list_head* generation_list,
 		// we need to somehow determine if the remote window_id
 		// is smaller or bigger than the local one!
 
-		// TODO reengineer that such that it doesn't rely on the
-		//  window size.
+		// TODO this could be reengineered such that
+		//  it doesn't rely on the window size,
+		//  but on a fixed interval.
 		if (window_id_delta >= metadata->window_size) {
 			// we have non overlapping generation windows!
 			// as sequence numbers are uint16 and wrap around,
@@ -884,8 +886,9 @@ generation_list_receive_coded(struct list_head* generation_list,
 		LOG(LOG_WARNING,
 			"Received a seemingly late packet for the generation seq=%d",
 			metadata->generation_sequence);
-		// TODO this might not entirely work with Intermediate nodes
-		//  (they shouldn't blindly ACK)?
+		// TODO might need a check if its a INTERMEDIATE node,
+		//  not sure if its a good idea to blindly ACK packets
+		//  as a forwarder.
 
 		// to trigger event, we need a reference to some generation.
 		// as ACKs are sent for all active generations, it's actually
