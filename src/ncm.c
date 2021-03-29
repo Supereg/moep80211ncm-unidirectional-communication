@@ -787,8 +787,6 @@ taph(moep_dev_t dev, moep_frame_t frame)
 	etherptr = moep_frame_ieee8023_hdr(frame);
 	memcpy(&ether, etherptr, sizeof(ether));
 
-
-	// handle broadcast/multicast frames
 	if (is_bcast_mac(ether.ether_dhost)||is_mcast_mac(ether.ether_dhost)) {
 		moep_dev_frame_convert(cfg.rad.dev, frame);
 
@@ -814,16 +812,13 @@ taph(moep_dev_t dev, moep_frame_t frame)
 		moep_frame_get_payload(frame, &len);
 		pctrl->len = htole16(len);
 
-		// forward unprocessed frame
 		rad_tx(frame);
 		moep_frame_destroy(frame);
 		return 0;
 	}
 
-	// create new session if none can be found
 	s = session_register(session_context, ether.ether_shost, ether.ether_dhost);
 
-	// encode frame
 	payload = moep_frame_get_payload(frame, &len);
 	session_encoder_add(s, ether.ether_type, payload, len);
 
@@ -912,6 +907,7 @@ radh(moep_dev_t dev, moep_frame_t frame)
 	case NCM_CODED_UNIDIR:
 		coded = (struct ncm_hdr_unidirectional_coded *)
 			moep_frame_moep_hdr_ext(frame, NCM_HDR_UNIDIRECTIONAL_CODED);
+			
 		if (!(coded)) {
 			LOG(LOG_ERR, "no extension header");
 			break;

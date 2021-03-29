@@ -283,7 +283,7 @@ int session_decoder_add(session_t* session, coded_packet_metadata_t* metadata, u
  */
 void session_log_state(session_subsystem_context_t* context);
  
-/*
+/**
  * Returms the sum of the remaining space of all generations of all sessions
  *
  * @param context - session context

@@ -45,9 +45,12 @@ typedef enum NCM_GENERATION_STATUS_ENUM {
 } NCM_GENERATION_STATUS;
 
 struct generation_packet_counter {
-       int data;
-       int ack;
-       int redundant;
+    // counts sent data packets
+    int data;
+    // counts sent acknowlegment packets
+    int ack;
+    // counts redundant data transmissions
+    int redundant;
 };
 
 struct generation;
@@ -167,6 +170,7 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
 
 /**
  * Called to add a encoded frame received from the network.
+ *
  * @param generation_list - List of generations.
  * @param metadata - Pointer to a `coded_packet_metadata_t` struct, holding metadata relevant to the given coded packet.
  * @param buffer - Pointer to the buffer containing the encoded frame.
@@ -175,12 +179,28 @@ NCM_GENERATION_STATUS generation_list_next_decoded(struct list_head* generation_
  */
 NCM_GENERATION_STATUS generation_list_receive_frame(struct list_head* generation_list, coded_packet_metadata_t* metadata, u8* buffer, size_t length);
 
+/**
+ * Fills in the fields of a ack payload struct according to the data in the generations.
+ *
+ * @param generations_list - List of generations that provide that data
+ * @param payload - Ack payload struct that is being filled in
+ * @returns void
+ */
 void generation_write_ack_payload(struct list_head* generations_list, ack_payload_t* payload);
 
+/**
+ * Returns the window size of a generation list
+ */
 int generation_window_size(struct list_head* generations_list);
 
+/**
+ * Returns the first sequence number in the generation_window (called window_id by us)
+ */
 u16 generation_window_id(struct list_head* generations_list);
 
+/**
+ * Returns the index of a generation inside the generation window
+ */
 int generation_index(const generation_t* generation);
 
 /**
@@ -209,14 +229,24 @@ bool generation_empty(const generation_t* generation);
  */
 int generation_space_remaining(const generation_t* generation);
 
+/**
+ * Returns the sum of the spaces remaining for each generation inside the window
+ */
 int generation_list_space_remaining(struct list_head* generation_list);
 
+/**
+ * ToDo: document thoroughly
+ */
 bool generation_is_complete(const generation_t* generation);
 
+/**
+ * ToDo: document thoroughly
+ */
 bool generation_remote_decoded(const generation_t* generation);
 
+/**
+ * Returns if every generations remote side is decoded inside the window
+ */
 bool generation_list_remote_decoded(struct list_head* generation_list);
-
-int generation_list_space_remaining(struct list_head* generations_list);
 
 #endif //GENERATION_H
