@@ -547,15 +547,20 @@ session_jsm_dequeue_callback(struct jsm80211_module* module,
 	(void) module;
 	session_t* session;
 	struct queued_packet* queued_packet;
+	int ret;
 
 	session = data;
 	queued_packet = packet;
 
-	session->context->os_callback(session->context,
+	ret = session->context->os_callback(session->context,
 		session,
 		queued_packet->ether_type,
 		queued_packet->payload,
 		queued_packet->payload_length);
+	if (ret != 0) {
+		DIE_SESSION(session, "os_callback returned non-zero exit: %d",
+			    ret);
+	}
 
 	free(queued_packet);
 	return 0;
@@ -567,6 +572,7 @@ session_check_for_decoded_frames(session_t* session)
 	NCM_GENERATION_STATUS status;
 	static u8 buffer[GENERATION_MAX_PDU_SIZE] = { 0 };
 	size_t buffer_length;
+	int ret;
 
 	struct coded_payload_metadata* metadata;
 	u8* payload;
@@ -605,9 +611,14 @@ session_check_for_decoded_frames(session_t* session)
 		if (session->jsm_module != NULL) {
 			session_jsm_queue_packet(session,
 				ether_type, payload, payload_length);
-		} else {
-			session->context->os_callback(session->context, session,
-				ether_type, payload, payload_length);
+			continue;
+		}
+
+		ret = session->context->os_callback(session->context, session,
+			ether_type, payload, payload_length);
+		if (ret != 0) {
+			DIE_SESSION(session, "os_callback returned non-zero exit: %d",
+				    ret);
 		}
 	}
 }
@@ -688,6 +699,7 @@ session_transmit_encoded_frame(session_t* session, generation_t* generation)
 	static u8 buffer[GENERATION_MAX_PDU_SIZE] = { 0 };
 	static struct coded_packet_metadata metadata;
 	size_t length;
+	int ret;
 
 	session_packet_metadata(&metadata, session, 0);
 
@@ -698,8 +710,12 @@ session_transmit_encoded_frame(session_t* session, generation_t* generation)
 		return -1;
 	}
 
-	session->context->rtx_callback(
+	ret = session->context->rtx_callback(
 		session->context, session, &metadata, buffer, length);
+	if (ret != 0) {
+		DIE_SESSION(session, "rtx_callback returned non-zero exit: %d",
+			ret);
+	}
 
 	return 0;
 }
@@ -710,6 +726,7 @@ session_transmit_ack_frame(session_t* session)
 	static struct coded_packet_metadata metadata;
 	struct ack_payload* payload;
 	size_t payload_length;
+	int ret;
 
 	payload_length = sizeof(*payload) * session->context->generation_window_size;
 
@@ -723,11 +740,15 @@ session_transmit_ack_frame(session_t* session)
 
 	session_packet_metadata(&metadata, session, true);
 
-	session->context->rtx_callback(session->context,
+	ret = session->context->rtx_callback(session->context,
 		session,
 		&metadata,
 		(u8*)payload,
 		payload_length);
+	if (ret != 0) {
+		DIE_SESSION(session, "rtx_callback returned non-zero exit: %d",
+			    ret);
+	}
 
 	free(payload);
 
