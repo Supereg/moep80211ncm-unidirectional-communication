@@ -135,7 +135,7 @@ session_subsystem_close(struct session_subsystem_context* context)
  * generates the filename for statistics saving
  */
 static char*
-session_get_log_fn(session_t* s)
+session_get_log_filename(session_t* s)
 {
 	static char filename[1000];
 	u8* session_id;
@@ -162,7 +162,7 @@ session_log_state(struct session_subsystem_context* context)
 
 	list_for_each_entry (pos, &context->sessions_list, list) {
 		session_id = (u8*)&pos->session_id;
-		filename = session_get_log_fn(pos);
+		filename = session_get_log_filename(pos);
 		file = fopen(filename, "a");
 		if (!file)
 			DIE("cannot open file: %s", filename);
@@ -358,7 +358,7 @@ session_free(session_t* session)
 		}
 	}
 
-	// TODO potential logging file unlink (do we want/need to [re]implement that?)
+	unlink(session_get_log_filename(session));
 
 	LOG_SESSION(LOG_INFO, session, "Session destroyed");
 

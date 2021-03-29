@@ -235,7 +235,7 @@ START_TEST(test_session_log)
 		&expected_id,
 		sizeof(struct session_id));
 
-	fn = session_get_log_fn(created_src_session);
+	fn = session_get_log_filename(created_src_session);
 	session_log_state(src_context);
 	file = fopen(fn, "r");
 	ck_assert_ptr_ne(file, NULL);
