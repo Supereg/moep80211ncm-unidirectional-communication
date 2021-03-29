@@ -152,6 +152,14 @@ struct session_subsystem_context {
 	int redundancy_scheme;
 
 	/**
+	 * Parameters for the jitter suppression module (jsm).
+	 * It is casted to `jsm80211_parameters`.
+	 * Which is a bit weird as we have the information at two places,
+	 * but its the way the old code did as well.
+	 */
+	const struct params_jsm* jsm_params;
+
+	/**
 	 * Linked list to store all registered sessions.
 	 */
 	struct list_head sessions_list;
@@ -228,6 +236,7 @@ session_subsystem_init(int generation_size,
 	u8* hw_address,
 	encoded_payload_callback rtx_callback,
 	decoded_payload_callback os_callback,
+	const struct params_jsm* jsm_params,
 	int redundancy_scheme);
 
 /**

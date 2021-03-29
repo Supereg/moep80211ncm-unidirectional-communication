@@ -732,6 +732,7 @@ tx_decoded_frame(struct session_subsystem_context* context,
 	u8* payload,
 	size_t length)
 {
+	(void) context;
 	struct session_id* session_id;
 	moep_frame_t frame;
 	struct ether_header* ether_header;
@@ -1111,6 +1112,7 @@ main(int argc, char **argv)
 		cfg.hwaddr,
 		tx_encoded_frame,
 		tx_decoded_frame,
+		&cfg.jsm,
 		cfg.session.rscheme);
 
 	moep_dev_set_rx_handler(cfg.tap.dev, taph);

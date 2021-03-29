@@ -11,6 +11,7 @@
 #include <moepcommon/list.h>
 #include <moepcommon/util.h>
 #include <moepcommon/timeout.h>
+#include <jsm.h>
 
 #include "generation.h"
 
@@ -34,6 +35,9 @@ static int
 session_destroy_callback(timeout_t timeout, u32 overrun, void* data);
 static int
 session_ack_callback(timeout_t timeout, u32 overrun, void* data);
+
+static int
+session_jsm_dequeue_callback(struct jsm80211_module* module, void* packet, void* data);
 
 struct session_timeouts {
 	/**
@@ -85,7 +89,25 @@ struct session {
 	 * packet counters for statistics
 	 */
 	struct session_packet_counter ctr;
+
+	/**
+	 * The associated `jsm80211_module` if `params_jsm`
+	 * were passed to `session_subsystem_init`. Otherwise NULL.
+	 */
+	struct jsm80211_module* jsm_module;
 };
+
+/**
+ * Used to encapsulate packet data when passing
+ * it to the queue of the jsm module.
+ * The struct is of variable size, depending on the `payload_length`.
+ */
+struct queued_packet {
+	u16 ether_type;
+	size_t payload_length;
+	u8 payload[0];
+} __attribute__((packed));
+
 
 struct session_subsystem_context*
 session_subsystem_init(int generation_size,
@@ -94,6 +116,7 @@ session_subsystem_init(int generation_size,
 	u8* hw_address,
 	encoded_payload_callback rtx_callback,
 	decoded_payload_callback os_callback,
+	const struct params_jsm* jsm_params,
 	int redundancy_scheme)
 {
 	struct session_subsystem_context* context;
@@ -116,6 +139,7 @@ session_subsystem_init(int generation_size,
 	context->rtx_callback = rtx_callback;
 	context->os_callback = os_callback;
 
+	context->jsm_params = jsm_params;
 	context->redundancy_scheme = redundancy_scheme;
 
 	INIT_LIST_HEAD(&context->sessions_list);
@@ -295,6 +319,17 @@ session_register(struct session_subsystem_context* context,
 
 	list_add(&session->list, &context->sessions_list);
 
+	if (context->jsm_params != NULL) {
+		ret = jsm80211_init(&session->jsm_module,
+			(struct jsm80211_parameters*)context->jsm_params,
+			session_jsm_dequeue_callback,
+			session);
+		if (ret != 0) {
+			session_free(session);
+			DIE("session_register() failed to jsm80211_init");
+		}
+	}
+
 	session_activity(session); // initializes the destroy_timeout!
 
 	LOG_SESSION(LOG_INFO, session, "New session created");
@@ -312,25 +347,6 @@ enum SESSION_TYPE
 session_get_type(session_t* session)
 {
 	return session->type;
-}
-
-static int
-session_space_remaining(session_t* session)
-{
-	return generation_list_space_remaining(&session->generations_list);
-}
-
-int
-session_context_min_space_remaining(struct session_subsystem_context* context)
-{
-	session_t* s;
-	int ret = GENERATION_SIZE;
-
-	list_for_each_entry (s, &context->sessions_list, list) {
-		ret = min(session_space_remaining(s), ret);
-	}
-
-	return ret;
 }
 
 void
@@ -356,6 +372,10 @@ session_free(session_t* session)
 			DIE("Failed session_free() to timeout_delete(): %s",
 				strerror(errno));
 		}
+	}
+
+	if (session->jsm_module != NULL) {
+		jsm80211_cleanup(session->jsm_module);
 	}
 
 	unlink(session_get_log_filename(session));
@@ -392,6 +412,25 @@ session_activity(session_t* session)
 			"session_activity() failed to timeout_settime() for destroy timeout: %s",
 			strerror(errno));
 	}
+}
+
+static int
+session_space_remaining(session_t* session)
+{
+	return generation_list_space_remaining(&session->generations_list);
+}
+
+int
+session_context_min_space_remaining(struct session_subsystem_context* context)
+{
+	session_t* s;
+	int ret = GENERATION_SIZE;
+
+	list_for_each_entry (s, &context->sessions_list, list) {
+		ret = min(session_space_remaining(s), ret);
+	}
+
+	return ret;
 }
 
 static void
@@ -474,6 +513,50 @@ session_encoder_add(session_t* session,
 }
 
 static void
+session_jsm_queue_packet(session_t* session,
+	u16 ether_type,
+	u8* payload,
+	size_t payload_length)
+{
+	struct queued_packet* queued_packet;
+	int ret;
+
+	assert(session->jsm_module != NULL);
+
+	queued_packet = calloc(1, sizeof(*queued_packet) + payload_length);
+	queued_packet->ether_type = ether_type;
+	queued_packet->payload_length = payload_length;
+	memcpy(queued_packet->payload, payload, payload_length);
+
+	ret = jsm80211_queue(session->jsm_module, queued_packet);
+	if (ret != 0) {
+		DIE_SESSION(session, "Failed to jsm80211_queue()");
+	}
+}
+
+static int
+session_jsm_dequeue_callback(struct jsm80211_module* module,
+	void* packet,
+	void* data)
+{
+	(void) module;
+	session_t* session;
+	struct queued_packet* queued_packet;
+
+	session = data;
+	queued_packet = packet;
+
+	session->context->os_callback(session->context,
+		session,
+		queued_packet->ether_type,
+		queued_packet->payload,
+		queued_packet->payload_length);
+
+	free(queued_packet);
+	return 0;
+}
+
+static void
 session_check_for_decoded_frames(session_t* session)
 {
 	NCM_GENERATION_STATUS status;
@@ -514,8 +597,13 @@ session_check_for_decoded_frames(session_t* session)
 		// ieee 80211 is LE, while ieee 8023 is BE
 		u16 ether_type = htobe16(le16toh(metadata->payload_type));
 
-		session->context->os_callback(session->context, session,
-			ether_type, payload, payload_length);
+		if (session->jsm_module != NULL) {
+			session_jsm_queue_packet(session,
+				ether_type, payload, payload_length);
+		} else {
+			session->context->os_callback(session->context, session,
+				ether_type, payload, payload_length);
+		}
 	}
 }
 

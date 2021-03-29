@@ -25,6 +25,7 @@ check_session_CPPFLAGS  = $(LIBMOEP_CFLAGS)
 check_session_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)
 check_session_CPPFLAGS += $(LIBMOEPGF_CFLAGS)
 check_session_CPPFLAGS += $(LIBMOEPRLNC_CFLAGS)
+check_session_CPPFLAGS += $(LIBJSM_CFLAGS)
 check_session_CPPFLAGS += $(CODE_COVERAGE_CPPFLAGS)
 
 check_session_LDADD  = $(top_builddir)/src/libsession.la
@@ -32,6 +33,7 @@ check_session_LDADD += @CHECK_LIBS@
 check_session_LDADD += $(LIBMOEP_LIBS)
 check_session_LDADD += $(LIBMOEPGF_LIBS)
 check_session_LDADD += $(LIBMOEPRLNC_LIBS)
+check_session_LDADD += $(LIBJSM_LIBS)
 check_session_LDADD += $(CODE_COVERAGE_LIBS)
 
 noinst_HEADERS  = ../libmoepcommon/include/moepcommon/benchmark.h

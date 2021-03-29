@@ -110,6 +110,7 @@ test_session_setup()
 		address_src,
 		check_rtx_frame_callback,
 		check_os_frame_callback,
+		NULL,
 		0);
 	intermediate_context = session_subsystem_init(CHECK_GENERATION_SIZE,
 		CHECK_GENERATION_WINDOW_SIZE,
@@ -117,6 +118,7 @@ test_session_setup()
 		address_intermediate,
 		check_rtx_frame_callback,
 		check_os_frame_callback,
+		NULL,
 		0);
 	dst_context = session_subsystem_init(CHECK_GENERATION_SIZE,
 		CHECK_GENERATION_WINDOW_SIZE,
@@ -124,6 +126,7 @@ test_session_setup()
 		address_dst,
 		check_rtx_frame_callback,
 		check_os_frame_callback,
+		NULL,
 		0);
 }
 

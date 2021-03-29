@@ -36,11 +36,13 @@ libsession_la_CPPFLAGS  = $(LIBMOEP_CFLAGS)
 libsession_la_CPPFLAGS += $(LIBMOEPCOMMON_CFLAGS)
 libsession_la_CPPFLAGS += $(LIBMOEPGF_CFLAGS)
 libsession_la_CPPFLAGS += $(LIBMOEPRLNC_CFLAGS)
+libsession_la_CPPFLAGS += $(LIBJSM_CFLAGS)
 libsession_la_CPPFLAGS += $(CODE_COVERAGE_CPPFLAGS)
 
 libsession_la_LIBADD  = $(LIBMOEP_LIBS)
 libsession_la_LIBADD += $(LIBMOEPGF_LIBS)
 libsession_la_LIBADD += $(LIBMOEPRLNC_LIBS)
+libsession_la_LIBADD += $(LIBJSM_LIBS)
 libsession_la_LIBADD += $(CODE_COVERAGE_LIBS)
 
 
