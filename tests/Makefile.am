@@ -17,6 +17,7 @@ check_session_SOURCES += check_utils.h
 check_session_SOURCES += check_generation.c
 check_session_SOURCES += check_session.c
 check_session_SOURCES += check_suites.h
+check_session_SOURCES += check_assert_mem_backport.h
 
 check_session_CFLAGS  = @CHECK_CFLAGS@
 check_session_CFLAGS += $(CODE_COVERAGE_CFLAGS)
