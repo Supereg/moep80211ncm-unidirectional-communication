@@ -13,7 +13,8 @@ with a unidirectional session management. See [project_proposal](./project_propo
 
 The project contains a full [CI setup](./.github/workflows/ncm.yml)
 using GitHub Actions doing 
-unit testing, code coverage reporting and memchecking using valgrind.
+unit testing, code coverage reporting, memchecking using valgrind and
+static analysis using clang-tidy.  
 See [Running session unit tests](#running-session-unit-tests) on how to manually 
 run unit tests and collect code coverage.
 
