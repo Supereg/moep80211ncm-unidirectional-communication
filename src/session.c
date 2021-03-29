@@ -198,6 +198,10 @@ session_log_state(struct session_subsystem_context* context)
 		fprintf(file, "%d,", pos->ctr.ack);
 		fprintf(file, "%d\n", pos->ctr.redundant);
 		fclose(file);
+
+		if (pos->jsm_module != NULL) {
+			jsm80211_log_state(pos->jsm_module);
+		}
 	}
 }
 
@@ -528,7 +532,8 @@ session_jsm_queue_packet(session_t* session,
 
 	assert(session->jsm_module != NULL);
 
-	queued_packet = calloc(1, sizeof(*queued_packet) + payload_length);
+	queued_packet = calloc(1, sizeof(*queued_packet)
+					  + sizeof(u8) * payload_length);
 	queued_packet->ether_type = ether_type;
 	queued_packet->payload_length = payload_length;
 	memcpy(queued_packet->payload, payload, payload_length);

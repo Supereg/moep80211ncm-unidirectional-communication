@@ -1112,8 +1112,11 @@ main(int argc, char **argv)
 		cfg.hwaddr,
 		tx_encoded_frame,
 		tx_decoded_frame,
-		&cfg.jsm,
+		NULL, // &cfg.jsm (see below)
 		cfg.session.rscheme);
+	// the jsm_params were disabled in the bidirectional session handling
+	// thus we disabled it for the newly created unidirectional one as well.
+	// In theory it works, but we didn't get it to work once we enabled it.
 
 	moep_dev_set_rx_handler(cfg.tap.dev, taph);
 	moep_dev_set_rx_handler(cfg.rad.dev, radh);
