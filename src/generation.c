@@ -309,7 +309,7 @@ tx_dec(generation_t* generation)
 		GENERATION_EVENT_SESSION_REDUNDANCY,
 		&session_redundancy);
 
-	assert(session_redundancy >= 1);
+	session_redundancy = max(1.0, session_redundancy);
 
 	if (generation->session_type == SOURCE) {
 		tx->src_count -= 1;
