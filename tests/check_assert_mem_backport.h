@@ -14,6 +14,10 @@
  * libcheck >= 0.11.x to stay compatible.
  */
 
+#ifndef CK_MAX_ASSERT_MEM_PRINT_SIZE
+#define CK_MAX_ASSERT_MEM_PRINT_SIZE 64
+#endif
+
 #ifndef _ck_assert_mem
 #define _ck_assert_mem(X, OP, Y, L) do { \
   const uint8_t* _ck_x = (const uint8_t*)(X); \

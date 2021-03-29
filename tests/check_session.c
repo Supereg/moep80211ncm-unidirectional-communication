@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include <check.h>
+#include "check_assert_mem_backport.h"
 
 #include <moepcommon/util.h>
 
