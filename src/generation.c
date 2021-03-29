@@ -1032,13 +1032,10 @@ generation_tx_callback(timeout_t timeout, u32 overrun, void* data)
 		return 0;
 	}
 
-	if (overrun) {
-		LOG_GENERATION(LOG_WARNING, generation,
-			"generation_tx_callback() detected %d skipped transmissions (overruns)",
-			overrun);
-	}
-
-	transmissions = (int)overrun + 1;
+	// overrun counts the "missed" timeout executions.
+	// Fairly normal to have it > 0 e.g. when adding more than one
+	// source packet on the same tick.
+	transmissions = (int) overrun + 1;
 
 	do {
 		generation_trigger_event(generation, GENERATION_EVENT_ENCODED, NULL);
