@@ -17,7 +17,6 @@ numpackets_stable(int p, int q, double thresh)
 	double sum, p1, pqj1;
 	double s[GENERATION_SIZE];
 
-	sum = 0;
 	for (i=0; i<GENERATION_SIZE; i++)
 		s[i] = 1.0;
 

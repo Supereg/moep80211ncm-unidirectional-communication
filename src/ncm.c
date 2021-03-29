@@ -501,8 +501,8 @@ send_beacon(timeout_t t, u32 overrun, void *data)
 	memset(hdr->ra, 0xff, IEEE80211_ALEN);
 
 	if (!(beacon = (void *)moep_frame_add_moep_hdr_ext(frame,
-							NCM_HDR_BEACON,
-							sizeof(*beacon))))
+		      (enum moep_hdr_type) NCM_HDR_BEACON,
+		      sizeof(*beacon))))
 		goto end;
 
 	i = nb_fill_dl((nb_dl_filler_t)beacon_filler, bcnp);
@@ -590,19 +590,19 @@ ncm_frame_type(moep_frame_t frame)
 {
 	struct moep_hdr_ext *ext;
 
-	ext = moep_frame_moep_hdr_ext(frame, NCM_HDR_CODED);
+	ext = moep_frame_moep_hdr_ext(frame, (enum moep_hdr_type) NCM_HDR_CODED);
 	if (ext)
 		return NCM_CODED;
 
-	ext = moep_frame_moep_hdr_ext(frame, NCM_HDR_UNIDIRECTIONAL_CODED);
+	ext = moep_frame_moep_hdr_ext(frame, (enum moep_hdr_type) NCM_HDR_UNIDIRECTIONAL_CODED);
 	if (ext)
 		return NCM_CODED_UNIDIR;
 
-	ext = moep_frame_moep_hdr_ext(frame, NCM_HDR_BCAST);
+	ext = moep_frame_moep_hdr_ext(frame, (enum moep_hdr_type) NCM_HDR_BCAST);
 	if (ext)
 		return NCM_DATA;
 
-	ext = moep_frame_moep_hdr_ext(frame, NCM_HDR_BEACON);
+	ext = moep_frame_moep_hdr_ext(frame, (enum moep_hdr_type) NCM_HDR_BEACON);
 	if (ext)
 		return NCM_BEACON;
 
@@ -815,7 +815,7 @@ taph(moep_dev_t dev, moep_frame_t frame)
 
 		bcast = (struct ncm_hdr_bcast *)
 			moep_frame_add_moep_hdr_ext(
-				frame, NCM_HDR_BCAST, sizeof(*bcast));
+				frame, (enum moep_hdr_type) NCM_HDR_BCAST, sizeof(*bcast));
 
 		if (!bcast) {
 			DIE("moep_frame_add_moep_hdr_ext() failed: %s",
@@ -901,7 +901,7 @@ radh(moep_dev_t dev, moep_frame_t frame)
 	switch (type) {
 	case NCM_DATA:
 		bcast = (struct ncm_hdr_bcast *)
-			moep_frame_moep_hdr_ext(frame, NCM_HDR_BCAST);
+			moep_frame_moep_hdr_ext(frame, (enum moep_hdr_type) NCM_HDR_BCAST);
 
 		if (bcast && !bcast_known(bcast->id)) {
 			bcast_add(bcast->id);
@@ -929,9 +929,10 @@ radh(moep_dev_t dev, moep_frame_t frame)
 
 	case NCM_CODED_UNIDIR:
 		coded = (struct ncm_hdr_unidirectional_coded *)
-			moep_frame_moep_hdr_ext(frame, NCM_HDR_UNIDIRECTIONAL_CODED);
+			moep_frame_moep_hdr_ext(
+				frame, (enum moep_hdr_type) NCM_HDR_UNIDIRECTIONAL_CODED);
 
-		if (!(coded)) {
+		if (coded == NULL) {
 			LOG(LOG_ERR, "no extension header");
 			break;
 		}
@@ -1043,12 +1044,14 @@ set_realtime_scheduler()
 
 	if (0 > sched_setscheduler(getpid(), SCHED_FIFO, &param))
 		DIE("sched_setscheduler() failed: %s", strerror(errno));
+
+	return 0;
 }
 
 int
 main(int argc, char **argv)
 {
-	int ret;
+	int ret = 0;
 
 	LOG(LOG_ERR, "hdr len = %d", NCM_HDRLEN_CODED_TOTAL);
 
