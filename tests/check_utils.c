@@ -150,6 +150,10 @@ test_init(session_t* source,
 {
 	struct check_test_context* context;
 
+	assert(session_get_type(source) == SOURCE);
+	assert(session_get_type(intermediate) == INTERMEDIATE);
+	assert(session_get_type(destination) == DESTINATION);
+
 	context = calloc(1, sizeof(*context));
 	if (context == NULL) {
 		DIE("init_test() failed to calloc check_test_context!");
@@ -407,7 +411,7 @@ await_fully_decoded()
 	if (session_fully_decoded(check_context.current_test->source)) {
 		// even though we can return immediately, run the run_loop
 		// do dequeue any pending signals.
-		await(20); // TODO magic constant
+		await(GENERATION_RTX_MAX_TIMEOUT);
 		return;
 	}
 
@@ -609,7 +613,6 @@ check_rtx_frame_callback(struct session_subsystem_context* session_context,
 		DIE_SESSION(session, "Unknown session!");
 	}
 
-	// TODO RAND_MAX is non inclusive
 	long int rnd_boundary = (long int)(test_context->forwarding_probability
 					   * (RAND_MAX - 1));
 
@@ -646,12 +649,6 @@ check_os_frame_callback(struct session_subsystem_context* context,
 	(void)context;
 	struct os_frame_entry *entry, *last;
 	int index = 0;
-
-	if (check_context.current_test == NULL) {
-		LOG(LOG_WARNING,
-			"check_rtx_frame_callback() was called without a test_context.");
-		return 0;
-	}
 
 	entry = calloc(1, sizeof(*entry));
 	if (entry == NULL) {

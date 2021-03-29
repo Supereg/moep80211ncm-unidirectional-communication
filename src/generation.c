@@ -435,7 +435,6 @@ generation_is_complete(const generation_t* generation)
 		return generation->remote_dimension >= generation->generation_size
 		       && generation_space_remaining(generation) == 0;
 	case INTERMEDIATE:
-		// TODO explicitly support intermediate nodes
 		DIE_GENERATION(generation, "Intermediate nodes are currently unsupported!");
 	}
 

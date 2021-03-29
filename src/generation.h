@@ -226,7 +226,6 @@ generation_list_receive_frame(struct list_head* generation_list,
  *
  * @param generations_list - List of generations that provide that data
  * @param payload - Ack payload struct that is being filled in
- * @returns void
  */
 void
 generation_write_ack_payload(struct list_head* generations_list,
@@ -255,7 +254,7 @@ generation_index(const generation_t* generation);
  * Returns the statistics of the generation before it is being reset.
  * 
  * @param generation - the generation being reset/whose stats we want
- * @returns a struct generation_packet_counter holding the stats
+ * @return a struct generation_packet_counter holding the stats
  */
 struct generation_packet_counter*
 generation_get_counters(generation_t* generation);
@@ -288,13 +287,34 @@ int
 generation_list_space_remaining(struct list_head* generation_list);
 
 /**
- * ToDo: document thoroughly
+ * Returns if a generation is considered complete
+ * (and thus can be freed/reset).
+ * What is considered "complete" depends on the session type of the generation.
+ *
+ * A SOURCE generations is complete if it has SENT all of its frames
+ * 	AND the destination has acknowledged all sent frames.
+ * A DESTINATION generation is complete if it has received all frames
+ * 	AND all decoded frames were passed to the `os_callback`.
+ *
+ * Note: "all frames" in the sense of frame count equals generation size.
+ *
+ * @param generation - The `generation_t` to check.
+ * @return Returns true if the generation is complete
  */
 bool
 generation_is_complete(const generation_t* generation);
 
 /**
- * ToDo: document thoroughly
+ * Returns if the remote/destination of a generation is able to decode.
+ * The result of the function is really only valuable information
+ * if called for a generation of session type SOURCE or INTERMEDIATE.
+ *
+ * A generation is considered "remote decoded" if the destination
+ * acknowledged (and thus decoded) all source frames **currently**
+ * present in the generation.
+ *
+ * @param generation - The `generation_t` to check.
+ * @return Returns true if the remote is decoded
  */
 bool
 generation_remote_decoded(const generation_t* generation);

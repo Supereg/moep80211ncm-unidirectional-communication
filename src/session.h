@@ -91,7 +91,7 @@ struct ack_payload {
  * 	holding metadata relevant to the given coded packet.
  * @param payload - The pointer to the payload.
  * @param length - The length of the payload.
- * @returns 0 success, -1 error
+ * @return 0 success, -1 error
  */
 typedef int (*encoded_payload_callback)(
 	struct session_subsystem_context* context,
@@ -110,7 +110,7 @@ typedef int (*encoded_payload_callback)(
  * @param ether_type - The ether type in network byte order.
  * @param payload - The pointer to the payload.
  * @param length - The length of the payload.
- * @returns 0 success, -1 error
+ * @return 0 success, -1 error
  */
 typedef int (*decoded_payload_callback)(
 	struct session_subsystem_context* context,

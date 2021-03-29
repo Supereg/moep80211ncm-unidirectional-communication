@@ -83,6 +83,9 @@ check_generation_init(struct list_head* generation_list,
 
 /* ---------------------------- Basic Setup Tests --------------------------- */
 
+/**
+ * Test case checking basic functionality of the generation handling.
+ */
 START_TEST(test_generation_creation)
 {
 	generation_t* generation0;
@@ -173,6 +176,10 @@ END_TEST
 
 /* -------------------------- CODING related tests -------------------------- */
 
+/**
+ * Simple test cases checking if `generation_encoder_add` behaves correctly
+ * for a given SOURCE node.
+ */
 START_TEST(test_generation_source)
 {
 	generation_t* generation;
@@ -207,6 +214,9 @@ START_TEST(test_generation_source)
 }
 END_TEST
 
+/**
+ * Simple test case sending a single string packet over a two node network.
+ */
 START_TEST(test_generation_destination)
 {
 	generation_t* source;
@@ -256,6 +266,11 @@ START_TEST(test_generation_destination)
 }
 END_TEST
 
+/**
+ * Test case sending three string packets over a two node network
+ * checking that generation_advance behaves correctly once the first
+ * generation is complete.
+ */
 START_TEST(test_generation_advance_source)
 {
 	generation_t* source_gen0;

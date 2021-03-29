@@ -144,6 +144,9 @@ test_session_teardown()
 
 /* --------------------------- Basic Setup Tests ---------------------------- */
 
+/**
+ * Test checking basic functionality and handling of a `session_t` struct.
+ */
 START_TEST(test_session_creation_and_find)
 {
 	session_t* session;
@@ -213,6 +216,9 @@ END_TEST
 
 /* ---------------------------- Statistics Tests ---------------------------- */
 
+/**
+ * Test checking the basic functionality of the logging mechanism.
+ */
 START_TEST(test_session_log)
 {
 	session_t* created_src_session;
@@ -250,6 +256,10 @@ END_TEST
 
 /* -------------------------- CODING related tests -------------------------- */
 
+/**
+ * Test checking coding functionality by sending three example frames
+ * over a two node network.
+ */
 START_TEST(test_session_coding_simple_two_nodes)
 {
 	check_test_context_t* context;
@@ -321,7 +331,11 @@ START_TEST(test_session_coding_simple_two_nodes)
 }
 END_TEST
 
-// test_session_coding_random_two_nodes is called for each of those configurations
+/**
+ * List of configurations the loop test `test_session_coding_random_two_nodes`
+ * is called with.
+ * This allows to run the same test with different configurations.
+ */
 const struct random_test_config test_config_coding_random_two_nodes[] = {
 	{
 		.forwarding_probability = 1,
@@ -331,7 +345,8 @@ const struct random_test_config test_config_coding_random_two_nodes[] = {
 	},
 	{
 		.forwarding_probability = 1,
-		.max_forwarding_timeout = 10,
+		// using a "high" delay will simulate frames arriving out of order
+		.max_forwarding_timeout = 100,
 		.packet_gen_min_time = 0,
 		.packet_gen_max_time = 2
 	},
@@ -361,6 +376,11 @@ const struct random_test_config test_config_coding_random_two_nodes[] = {
 	},
 };
 
+/**
+ * Timeout callback used in the `test_session_coding_random_two_nodes`
+ * which is used to generate a single random packet
+ * (and adding it to the source node).
+ */
 static int
 random_coding_packet_timeout_callback(timeout_t timeout,
 	u32 overrun,
@@ -447,6 +467,20 @@ random_coding_packet_timeout_callback(timeout_t timeout,
 	return 0;
 }
 
+/**
+ * This test considers a network of two nodes (SOURCE and DESTINATION)
+ * and sends hundreds to thousands of randomly generated packet
+ * through that network.
+ * It is a loop test (see `tcase_add_loop_test` and param _i),
+ * and run multiple times using different configurations for
+ * random packet loss and forwarding times.
+ *
+ * This tests checks that the implementation properly handles
+ * packet loss and e.g. frames arriving out of order.
+ *
+ * @param _i - The loop index to retrieve the current configuration from.
+ * 	The configurations are stored in `test_config_coding_random_two_nodes`.
+ */
 START_TEST(test_session_coding_random_two_nodes)
 {
 	static struct random_test_execution execution = { 0 };
