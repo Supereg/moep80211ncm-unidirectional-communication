@@ -52,8 +52,10 @@ struct coded_payload_metadata {
 /**
  * This struct is used to store any metadata with the coded **packet**.
  * This includes e.g. identification of the given session and generation.
- * This is basically a internal structure to pass around information
- * store in the 'coded' extension header of a moep 80211 packet.
+ * This basically mirrors the information stored in
+ * `struct ncm_hdr_unidirectional_coded` allowing us to decouple
+ * the session code from building moep frames (which requires e.g.
+ * a moep_device).
  */
 struct coded_packet_metadata {
 	// The Session ID

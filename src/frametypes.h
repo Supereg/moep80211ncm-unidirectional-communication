@@ -39,16 +39,36 @@ struct ncm_beacon_payload {
  */
 struct ncm_hdr_unidirectional_coded {
 	struct moep_hdr_ext hdr;
+	/**
+	 * The session_id
+	 */
 	struct session_id session_id;
 	// The generation sequence number of the generation this packet is sent for.
+	/**
+	 * The sequence number of the generation a given coded packet
+	 * stems from or is addressed to.
+	 * For ACK frames this value is zero and has no meaning.
+	 */
 	u16 sequence_number;
-	// sequence number of the first generation in the window
+	/**
+	 * The smallest sequence number of the current generation window.
+	 */
 	u16 window_id;
+	/**
+	 * The Galois field type used.
+	 */
 	u8 gf : 2;
-	// acknowledgment flag
+	/**
+	 * Flag to determine if the frame payload is an acknowledgment.
+	 * If so, the payload is to be interpreted as an array
+	 * of `struct ack_payload`.
+	 */
 	u8 ack : 1;
+	/**
+	 * The generation window size.
+	 */
 	u8 window_size : 5;
-};
+} __attribute__((packed));
 
 struct ncm_hdr_bcast {
 	struct moep_hdr_ext hdr;

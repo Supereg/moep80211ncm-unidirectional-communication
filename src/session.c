@@ -542,12 +542,8 @@ session_decoder_add(session_t* session,
 		return -1;
 	}
 
-	assert((metadata->ack
-		       && (session->type == SOURCE
-			       || session->type == INTERMEDIATE))
-		|| (!metadata->ack
-			&& (session->type == DESTINATION
-				|| session->type == INTERMEDIATE)));
+	assert((metadata->ack && (session->type == SOURCE || session->type == INTERMEDIATE))
+		|| (!metadata->ack && (session->type == DESTINATION || session->type == INTERMEDIATE)));
 
 	session_activity(session);
 
