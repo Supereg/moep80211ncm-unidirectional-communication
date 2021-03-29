@@ -208,7 +208,7 @@ generation_list_next_decoded(struct list_head* generation_list,
  * Called to add a encoded frame received from the network.
  *
  * @param generation_list - List of generations.
- * @param metadata - Pointer to a `coded_packet_metadata_t` struct,
+ * @param metadata - Pointer to a `coded_packet_metadata` struct,
  * 	holding metadata relevant to the given coded packet.
  * @param buffer - Pointer to the buffer containing the encoded frame.
  * @param length - Length of the encoded frame.
@@ -216,7 +216,7 @@ generation_list_next_decoded(struct list_head* generation_list,
  */
 NCM_GENERATION_STATUS
 generation_list_receive_frame(struct list_head* generation_list,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* buffer,
 	size_t length);
 
@@ -230,7 +230,7 @@ generation_list_receive_frame(struct list_head* generation_list,
  */
 void
 generation_write_ack_payload(struct list_head* generations_list,
-	ack_payload_t* payload);
+	struct ack_payload* payload);
 
 /**
  * Returns the window size of a generation list

@@ -39,7 +39,7 @@ struct ncm_beacon_payload {
  */
 struct ncm_hdr_unidirectional_coded {
 	struct moep_hdr_ext hdr;
-	u8 session_id[2 * IEEE80211_ALEN];
+	struct session_id session_id;
 	// The generation sequence number of the generation this packet is sent for.
 	u16 sequence_number;
 	// sequence number of the first generation in the window

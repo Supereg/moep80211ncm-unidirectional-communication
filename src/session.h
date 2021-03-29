@@ -23,10 +23,10 @@ typedef struct session session_t;
 
 struct session_subsystem_context;
 
-typedef struct {
+struct session_id {
 	u8 src_address[IEEE80211_ALEN];
 	u8 dst_address[IEEE80211_ALEN];
-} session_id;
+} __attribute__((packed));
 
 struct session_packet_counter {
 	int data;
@@ -41,13 +41,13 @@ struct session_packet_counter {
  * Thus we just prepend our encoded buffer with below `coded_payload_metadata`,
  * appended with the original payload.
  */
-typedef struct coded_payload_metadata {
+struct coded_payload_metadata {
 	/**
      * Equivalent to the ethertype, specifying the L3 protocol.
      * Stored in LE format.
      */
 	u16 payload_type;
-} coded_payload_metadata_t;
+} __attribute__((packed));
 
 /**
  * This struct is used to store any metadata with the coded **packet**.
@@ -55,9 +55,9 @@ typedef struct coded_payload_metadata {
  * This is basically a internal structure to pass around information
  * store in the 'coded' extension header of a moep 80211 packet.
  */
-typedef struct coded_packet_metadata {
+struct coded_packet_metadata {
 	// The Session ID
-	session_id sid;
+	struct session_id session_id;
 	// The sequence number of the generation a given encoded packet
 	// stems from or is addressed to.
 	// For ack frames this value is zero and has no meaning.
@@ -70,13 +70,13 @@ typedef struct coded_packet_metadata {
 	bool ack;
 	// generation windows size
 	u8 window_size;
-} coded_packet_metadata_t;
+};
 
-// This struct represents the payload that is transported via an ack
-typedef struct ack_payload {
+// This struct represents the payload that is transported via an ACK
+struct ack_payload {
 	u16 sequence_number;
 	u8 receiver_dim;
-} ack_payload_t;
+} __attribute__((packed));
 
 /**
  * Generic callback type for handling encoded payloads.
@@ -85,7 +85,7 @@ typedef struct ack_payload {
  *
  * @param context - The `session_subsystem_context`.
  * @param session - The given session, this callback was executed for.
- * @param metadata - Pointer to a `coded_packet_metadata_t` struct,
+ * @param metadata - Pointer to a `coded_packet_metadata` struct,
  * 	holding metadata relevant to the given coded packet.
  * @param payload - The pointer to the payload.
  * @param length - The length of the payload.
@@ -94,7 +94,7 @@ typedef struct ack_payload {
 typedef int (*encoded_payload_callback)(
 	struct session_subsystem_context* context,
 	session_t* session,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* payload,
 	size_t length);
 
@@ -125,7 +125,7 @@ typedef int (*decoded_payload_callback)(
  *
  * See `session_subsystem_init` on how to initialize the session subsystem.
  */
-typedef struct session_subsystem_context {
+struct session_subsystem_context {
 	const int generation_size;
 	const int generation_window_size;
 	const enum MOEPGF_TYPE moepgf_type;
@@ -153,7 +153,7 @@ typedef struct session_subsystem_context {
 	 * Linked list to store all registered sessions.
 	 */
 	struct list_head sessions_list;
-} session_subsystem_context_t;
+};
 
 /**
  * Defines the type of `session`
@@ -216,10 +216,10 @@ do { \
  * For a detailed documentation of the required parameters,
  * have a look at the documentation of the `struct session_subsystem_context`.
  *
- * @return Returns a new `session_subsystem_context_t`,
+ * @return Returns a new `session_subsystem_context`,
  * 	initialized with the provided parameters.
  */
-session_subsystem_context_t*
+struct session_subsystem_context*
 session_subsystem_init(int generation_size,
 	int generation_window_size,
 	enum MOEPGF_TYPE moepgf_type,
@@ -231,11 +231,11 @@ session_subsystem_init(int generation_size,
 /**
  * Shutdown the session subsystem.
  * Closing all registered sessions and
- * freeing the global `session_subsystem_context_t`.
- * @param context - The `session_subsystem_context_t` context to be closed.
+ * freeing the global `session_subsystem_context`.
+ * @param context - The `session_subsystem_context` context to be closed.
  */
 void
-session_subsystem_close(session_subsystem_context_t* context);
+session_subsystem_close(struct session_subsystem_context* context);
 
 /* ----------------------------------------------------------------- */
 
@@ -251,7 +251,7 @@ session_subsystem_close(session_subsystem_context_t* context);
  * Thus the tuple of those two mac addresses act as
  * the unique identifier for a session (`session_id`)
  *
- * @param context - The `session_subsystem_context_t`,
+ * @param context - The `session_subsystem_context`,
  * 	to be created using `session_subsystem_init`.
  * @param src_host - Pointer to the mac address of the node packets are origination from.
  * 	MUST be of length IEEE80211_ALEN.
@@ -261,7 +261,7 @@ session_subsystem_close(session_subsystem_context_t* context);
  * 	if it didn't exist yet.
  */
 session_t*
-session_register(session_subsystem_context_t* context,
+session_register(struct session_subsystem_context* context,
 	const u8* src_host,
 	const u8* dst_host);
 
@@ -270,7 +270,7 @@ session_register(session_subsystem_context_t* context,
  * @param session - The given `session_t`
  * @return The `session_id` of the `session_t`
  */
-session_id*
+struct session_id*
 session_get_id(session_t* session);
 
 /**
@@ -284,7 +284,7 @@ session_get_type(session_t* session);
 /**
  * Adds a source frame (e.g. received from the OS) to the next
  * available generation of the given session.
- * This might then lead to the `session_subsystem_context_t.rtx_callback`
+ * This might then lead to the `session_subsystem_context.rtx_callback`
  * being called with the encoded frame.
  *
  * @param session - The `session_t` the frame should be added to.
@@ -302,11 +302,11 @@ session_encoder_add(session_t* session,
 /**
  * Adds a encoded frame to the addressed generation of the given session.
  * Once the next frame can be successfully decoded, this might then lead to a
- * call to `session_subsystem_context_t.os_callback` with the fully
+ * call to `session_subsystem_context.os_callback` with the fully
  * decoded frame, which can be handed back to the OS.
  *
  * @param session - The `session_t` for which the frame was received.
- * @param metadata - Pointer to a `coded_packet_metadata_t` struct,
+ * @param metadata - Pointer to a `coded_packet_metadata` struct,
  * 	holding metadata relevant to the given coded packet.
  * @param payload - Pointer to the received encoded payload.
  * @param length - The length of the payload.
@@ -314,7 +314,7 @@ session_encoder_add(session_t* session,
  */
 int
 session_decoder_add(session_t* session,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* payload,
 	size_t length);
 
@@ -326,7 +326,7 @@ session_decoder_add(session_t* session,
  * 	that are to be logged.
  */
 void
-session_log_state(session_subsystem_context_t* context);
+session_log_state(struct session_subsystem_context* context);
 
 /**
  * Returns the sum of the remaining space of all generations of all sessions
@@ -335,6 +335,6 @@ session_log_state(session_subsystem_context_t* context);
  * @return sum
  */
 int
-session_context_min_space_remaining(session_subsystem_context_t* context);
+session_context_min_space_remaining(struct session_subsystem_context* context);
 
 #endif //SESSION_H

@@ -174,7 +174,7 @@ generation_init(struct list_head* generation_list,
 		generation_index = previous->index + 1;
 	}
 
-	generation = calloc(1, sizeof(struct generation));
+	generation = calloc(1, sizeof(*generation));
 	if (generation == NULL) {
 		DIE("generation_init() Failed to calloc() generation: %s [gen_seq=%d]",
 			strerror(errno),
@@ -204,7 +204,7 @@ generation_init(struct list_head* generation_list,
 	generation->remote_dimension = 0;
 
 	if (session_type == SOURCE || session_type == INTERMEDIATE) {
-		tx = calloc(1, sizeof(struct tx));
+		tx = calloc(1, sizeof(*tx));
 		if (tx == NULL) {
 			free(generation);
 			DIE("generation_init() Failed to calloc() tx state: %s [gen_seq=%d]",
@@ -786,7 +786,7 @@ generation_decoder_add(generation_t* generation, u8* buffer, size_t length)
 
 void
 align_generation_window(struct list_head* generation_list,
-	coded_packet_metadata_t* metadata)
+	struct coded_packet_metadata* metadata)
 {
 	u16 local_window_id;
 	u16 window_id_delta;
@@ -872,7 +872,7 @@ align_generation_window(struct list_head* generation_list,
 
 static NCM_GENERATION_STATUS
 generation_list_receive_coded(struct list_head* generation_list,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* buffer,
 	size_t length)
 {
@@ -910,17 +910,17 @@ generation_list_receive_coded(struct list_head* generation_list,
 
 static NCM_GENERATION_STATUS
 generation_list_receive_ack(struct list_head* generation_list,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* buffer,
 	size_t length)
 {
 	int count;
-	ack_payload_t* ack_payloads;
-	ack_payload_t ack;
+	struct ack_payload* ack_payloads;
+	struct ack_payload ack;
 	generation_t* generation;
 
-	ack_payloads = (ack_payload_t*)buffer;
-	count = (int)(length / sizeof(ack_payload_t));
+	ack_payloads = (struct ack_payload*) buffer;
+	count = (int)(length / sizeof(struct ack_payload));
 
 	if (count != metadata->window_size) {
 		LOG(LOG_ERR,
@@ -945,7 +945,7 @@ generation_list_receive_ack(struct list_head* generation_list,
 
 NCM_GENERATION_STATUS
 generation_list_receive_frame(struct list_head* generation_list,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* buffer,
 	size_t length)
 {
@@ -967,7 +967,7 @@ generation_list_receive_frame(struct list_head* generation_list,
 
 void
 generation_write_ack_payload(struct list_head* generations_list,
-	ack_payload_t* payload)
+	struct ack_payload* payload)
 {
 	struct generation* cur;
 	int payload_ind;

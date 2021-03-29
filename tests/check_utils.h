@@ -18,7 +18,7 @@ typedef struct check_test_context check_test_context_t;
  * Use to store a call to the `os_callback` in order
  * to make it available to the test case.
  */
-typedef struct os_frame_entry {
+struct os_frame_entry {
 	struct list_head list;
 	int index;
 
@@ -26,7 +26,7 @@ typedef struct os_frame_entry {
 	u16 ether_type;
 	u8 payload[CHECK_MAX_PDU];
 	size_t length;
-} os_frame_entry_t;
+};
 
 // TODO bunch docs missing
 
@@ -63,13 +63,13 @@ void
 test_free(check_test_context_t* context);
 
 int
-check_rtx_frame_callback(session_subsystem_context_t* session_context,
+check_rtx_frame_callback(struct session_subsystem_context* session_context,
 	session_t* session,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* payload,
 	size_t length);
 int
-check_os_frame_callback(session_subsystem_context_t* context,
+check_os_frame_callback(struct session_subsystem_context* context,
 	session_t* session,
 	u16 ether_type,
 	u8* payload,
@@ -86,10 +86,10 @@ await_fully_decoded();
 bool
 os_frame_entries_emtpy();
 
-os_frame_entry_t*
+struct os_frame_entry*
 pop_os_frame_entry(); // Don't forget to free(...) after pop
 
-os_frame_entry_t*
+struct os_frame_entry*
 peek_os_frame_entry(int index);
 
 #endif //CHECK_UTILS_H

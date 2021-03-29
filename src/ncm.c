@@ -66,7 +66,7 @@ const char *argp_program_version = "ncm 2.0";
 const char *argp_program_bug_address = "<guenther@tum.de>";
 
 static char args_doc[] = "IF FREQ";
-static session_subsystem_context_t* session_context;
+static struct session_subsystem_context* session_context;
 
 static int send_beacon(timeout_t t, u32 overrun, void *data);
 
@@ -610,8 +610,10 @@ ncm_frame_type(moep_frame_t frame)
 }
 
 static void
-set_coded_header(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet_metadata_t* metadata) {
-	memcpy(coded_header->session_id, &(metadata->sid), sizeof(session_id));
+set_coded_header(struct ncm_hdr_unidirectional_coded* coded_header,
+	struct coded_packet_metadata* metadata)
+{
+	coded_header->session_id = metadata->session_id;
 	coded_header->sequence_number = metadata->generation_sequence;
 	coded_header->window_id = metadata->window_id;
 	coded_header->gf = metadata->gf;
@@ -620,8 +622,10 @@ set_coded_header(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet
 }
 
 static void
-set_coded_metadata(struct ncm_hdr_unidirectional_coded* coded_header, coded_packet_metadata_t* metadata) {
-	memcpy(&(metadata->sid), coded_header->session_id, sizeof(session_id));
+set_coded_metadata(struct ncm_hdr_unidirectional_coded* coded_header,
+	struct coded_packet_metadata* metadata)
+{
+	metadata->session_id = coded_header->session_id;
 	metadata->generation_sequence = coded_header->sequence_number;
 	metadata->window_id = coded_header->window_id;
 	metadata->gf = coded_header->gf;
@@ -647,7 +651,7 @@ rad_tx(moep_frame_t frame)
 int
 tx_encoded_frame(struct session_subsystem_context* context,
 	session_t* session,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* payload,
 	size_t length)
 {
@@ -728,7 +732,7 @@ tx_decoded_frame(struct session_subsystem_context* context,
 	u8* payload,
 	size_t length)
 {
-	session_id* session_id;
+	struct session_id* session_id;
 	moep_frame_t frame;
 	struct ether_header* ether_header;
 	int ret;
@@ -860,8 +864,8 @@ radh(moep_dev_t dev, moep_frame_t frame)
 	struct ncm_beacon_payload *bcnp;
 	struct moep80211_radiotap *rt;
 	struct ether_header *etherptr, ether;
-	session_id* sess_id;
-	coded_packet_metadata_t metadata;
+	struct session_id* sess_id;
+	struct coded_packet_metadata metadata;
 	size_t len;
 	size_t coded_length;
 	u8* coded_payload;
@@ -933,7 +937,7 @@ radh(moep_dev_t dev, moep_frame_t frame)
 		}
 		coded_payload = moep_frame_get_payload(frame, &coded_length);
 
-		sess_id = (session_id *) &(coded->session_id);
+		sess_id = &coded->session_id;
 		s = session_register(session_context, sess_id->src_address, sess_id->dst_address);
 		set_coded_metadata(coded, &metadata);
 

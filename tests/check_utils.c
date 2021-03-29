@@ -46,7 +46,7 @@ do { \
 
 #define FREE_LIST(list_head) \
 do { \
-	os_frame_entry_t *current, *tmp; \
+	struct os_frame_entry *current, *tmp; \
 	list_for_each_entry_safe (current, tmp, list_head, list) { \
 		list_del(&current->list); \
 		free(current); \
@@ -98,7 +98,7 @@ do { \
 
 struct stored_rtx_frame {
 	session_t* session;
-	coded_packet_metadata_t metadata;
+	struct coded_packet_metadata metadata;
 	u8 payload[2 * CHECK_MAX_PDU];
 	size_t length;
 };
@@ -150,7 +150,7 @@ test_init(session_t* source,
 {
 	struct check_test_context* context;
 
-	context = calloc(1, sizeof(struct check_test_context));
+	context = calloc(1, sizeof(*context));
 	if (context == NULL) {
 		DIE("init_test() failed to calloc check_test_context!");
 	}
@@ -228,7 +228,7 @@ init_check_utils()
 {
 	sigset_t timer_sig_set;
 
-	memset(&check_context, 0, sizeof(struct check_context));
+	memset(&check_context, 0, sizeof(check_context));
 
 	check_context.epoll_fd = epoll_create1(0);
 	if (check_context.epoll_fd < 0) {
@@ -269,7 +269,7 @@ close_check_utils()
 	sigprocmask(SIG_SETMASK, &check_context.old_set, NULL);
 	close(check_context.epoll_fd);
 
-	memset(&check_context, 0, sizeof(struct check_context));
+	memset(&check_context, 0, sizeof(check_context));
 
 	FREE_LIST(&os_frame_entries);
 }
@@ -291,7 +291,7 @@ exec_queued_timers(struct check_context context)
 	do {
 		length = read(context.signal_fd,
 			&siginfo,
-			sizeof(struct signalfd_siginfo));
+			sizeof(siginfo));
 	} while (length < 0 && errno == EINTR);
 
 	if (length < 0) {
@@ -511,7 +511,7 @@ schedule_forwarding_timeout(struct stored_rtx_frame* frame, s64 timeout_val)
 	assert(check_context.current_test != NULL
 		&& "Current test isn't available anymore!");
 
-	queued_timeout = calloc(1, sizeof(struct queued_forwarding_timeout));
+	queued_timeout = calloc(1, sizeof(*queued_timeout));
 	if (queued_timeout == NULL) {
 		DIE("schedule_forwarding_timeout() failed to calloc queued_forwarding_timeout");
 	}
@@ -546,18 +546,18 @@ os_frame_entries_emtpy()
 	return list_empty(&os_frame_entries);
 }
 
-os_frame_entry_t*
+struct os_frame_entry*
 pop_os_frame_entry()
 {
-	os_frame_entry_t* entry;
-	POP_ENTRY(&os_frame_entries, entry, os_frame_entry_t, "os_frame");
+	struct os_frame_entry* entry;
+	POP_ENTRY(&os_frame_entries, entry, struct os_frame_entry, "os_frame");
 	return entry;
 }
 
-os_frame_entry_t*
+struct os_frame_entry*
 peek_os_frame_entry(int index)
 {
-	os_frame_entry_t* entry;
+	struct os_frame_entry* entry;
 	PEEK_ENTRY(&os_frame_entries, entry, index, "os_frame");
 	return entry;
 }
@@ -565,9 +565,9 @@ peek_os_frame_entry(int index)
 // ------- below are the session context callbacks which must be hooked -------
 
 int
-check_rtx_frame_callback(session_subsystem_context_t* session_context,
+check_rtx_frame_callback(struct session_subsystem_context* session_context,
 	session_t* session,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* payload,
 	size_t length)
 {
@@ -583,12 +583,12 @@ check_rtx_frame_callback(session_subsystem_context_t* session_context,
 		return 0;
 	}
 
-	frame = calloc(1, sizeof(struct stored_rtx_frame));
+	frame = calloc(1, sizeof(*frame));
 	if (frame == NULL) {
 		ck_abort_msg("Failed to calloc stored_rtx_frame");
 	}
 
-	memcpy(&frame->metadata, metadata, sizeof(coded_packet_metadata_t));
+	memcpy(&frame->metadata, metadata, sizeof(*metadata));
 
 	ck_assert_msg(length <= sizeof(frame->payload),
 		"Received frame inside check_rtx_frame_callback() exceed the length of stored_rtx_frame: %zu",
@@ -637,14 +637,14 @@ check_rtx_frame_callback(session_subsystem_context_t* session_context,
 }
 
 int
-check_os_frame_callback(session_subsystem_context_t* context,
+check_os_frame_callback(struct session_subsystem_context* context,
 	session_t* session,
 	u16 ether_type,
 	u8* payload,
 	size_t length)
 {
 	(void)context;
-	os_frame_entry_t *entry, *last;
+	struct os_frame_entry *entry, *last;
 	int index = 0;
 
 	if (check_context.current_test == NULL) {
@@ -653,14 +653,14 @@ check_os_frame_callback(session_subsystem_context_t* context,
 		return 0;
 	}
 
-	entry = calloc(1, sizeof(os_frame_entry_t));
+	entry = calloc(1, sizeof(*entry));
 	if (entry == NULL) {
-		ck_abort_msg("Failed to alloc a os_frame_entry_t");
+		ck_abort_msg("Failed to alloc a os_frame_entry");
 	}
 
 	if (!list_empty(&os_frame_entries)) {
 		last = list_last_entry(
-			&os_frame_entries, os_frame_entry_t, list);
+			&os_frame_entries, struct os_frame_entry, list);
 		index = last->index + 1;
 	}
 
@@ -670,7 +670,7 @@ check_os_frame_callback(session_subsystem_context_t* context,
 	entry->ether_type = ether_type;
 
 	ck_assert_msg(length <= sizeof(entry->payload),
-		"Received frame inside check_os_frame_callback() exceeding the length of os_frame_entry_t");
+		"Received frame inside check_os_frame_callback() exceeding the length of os_frame_entry");
 	memcpy(entry->payload, payload, length);
 	entry->length = length;
 

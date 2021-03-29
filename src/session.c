@@ -20,7 +20,7 @@
 void
 session_free(session_t* session);
 void
-session_list_free(session_subsystem_context_t* context);
+session_list_free(struct session_subsystem_context* context);
 static void
 session_activity(session_t* session);
 
@@ -59,14 +59,14 @@ struct session {
 	struct list_head list;
 
 	/**
-	 * The associated `session_subsystem_context_t` this session was added to.
+	 * The associated `session_subsystem_context` this session was added to.
 	 */
-	session_subsystem_context_t* context;
+	struct session_subsystem_context* context;
 
 	/**
 	 * The `session_id` uniquely identifying the given session!
 	 */
-	session_id session_id;
+	struct session_id session_id;
 
 	/**
 	 * The `SESSION_TYPE` of the given session.
@@ -87,7 +87,7 @@ struct session {
 	struct session_packet_counter ctr;
 };
 
-session_subsystem_context_t*
+struct session_subsystem_context*
 session_subsystem_init(int generation_size,
 	int generation_window_size,
 	enum MOEPGF_TYPE moepgf_type,
@@ -102,9 +102,9 @@ session_subsystem_init(int generation_size,
 	assert(rtx_callback != NULL && "rtx_callback pointer can't be NULL pointer!");
 	assert(os_callback != NULL && "os_callback pointer can't be NULL pointer!");
 
-	context = calloc(1, sizeof(session_subsystem_context_t));
+	context = calloc(1, sizeof(*context));
 	if (context == NULL) {
-		DIE("Failed session_subsystem_init() to allocated a `session_subsystem_context_t`!");
+		DIE("Failed session_subsystem_init() to allocated a `session_subsystem_context`!");
 	}
 
 	*(int*)&context->generation_size = generation_size;
@@ -124,7 +124,7 @@ session_subsystem_init(int generation_size,
 }
 
 void
-session_subsystem_close(session_subsystem_context_t* context)
+session_subsystem_close(struct session_subsystem_context* context)
 {
 	session_list_free(context);
 
@@ -152,7 +152,7 @@ session_get_log_fn(session_t* s)
 }
 
 void
-session_log_state(session_subsystem_context_t* context)
+session_log_state(struct session_subsystem_context* context)
 {
 	session_t* pos;
 	char* filename;
@@ -188,7 +188,7 @@ session_log_state(session_subsystem_context_t* context)
  * 		against the local hardware address.
  */
 enum SESSION_TYPE
-session_type_derived(session_subsystem_context_t* context,
+session_type_derived(struct session_subsystem_context* context,
 	const u8* ether_source_host,
 	const u8* ether_destination_host)
 {
@@ -209,7 +209,7 @@ session_type_derived(session_subsystem_context_t* context,
 }
 
 session_t*
-session_find(session_subsystem_context_t* context,
+session_find(struct session_subsystem_context* context,
 	const u8* src_host,
 	const u8* dst_host)
 {
@@ -234,7 +234,7 @@ session_find(session_subsystem_context_t* context,
 }
 
 session_t*
-session_register(session_subsystem_context_t* context,
+session_register(struct session_subsystem_context* context,
 	const u8* src_host,
 	const u8* dst_host)
 {
@@ -250,7 +250,7 @@ session_register(session_subsystem_context_t* context,
 		return session;
 	}
 
-	session = calloc(1, sizeof(struct session));
+	session = calloc(1, sizeof(*session));
 	if (session == NULL) {
 		DIE_SESSION(session, "Failed to calloc() session: %s",
 			strerror(errno));
@@ -302,7 +302,7 @@ session_register(session_subsystem_context_t* context,
 	return session;
 }
 
-session_id*
+struct session_id*
 session_get_id(session_t* session)
 {
 	return &session->session_id;
@@ -321,7 +321,7 @@ session_space_remaining(session_t* session)
 }
 
 int
-session_context_min_space_remaining(session_subsystem_context_t* context)
+session_context_min_space_remaining(struct session_subsystem_context* context)
 {
 	session_t* s;
 	int ret = GENERATION_SIZE;
@@ -369,7 +369,7 @@ session_free(session_t* session)
  * Frees up the global session list.
  */
 void
-session_list_free(session_subsystem_context_t* context)
+session_list_free(struct session_subsystem_context* context)
 {
 	session_t *current, *tmp;
 
@@ -431,7 +431,7 @@ session_encoder_add(session_t* session,
 	static u8 buffer[GENERATION_MAX_PDU_SIZE] = { 0 };
 	size_t buffer_length;
 	// see docs of `coded_payload_metadata`
-	coded_payload_metadata_t* metadata;
+	struct coded_payload_metadata* metadata;
 
 	assert(session->type == SOURCE && "Only a SOURCE session can add source frames!");
 
@@ -440,21 +440,21 @@ session_encoder_add(session_t* session,
 	// 1. prepend our frame buffer with the `coded_payload_metadata`
 	//   to preserve ether type in our linear combinations of packets
 
-	buffer_length = payload_length + sizeof(coded_payload_metadata_t);
+	buffer_length = payload_length + sizeof(*metadata);
 	// TODO we later need to transport the coding vectors + the buffer in a single PDU,
 	//   thus this check would somehow need to account for that
 	//   (the check will be repeated later [with also checking coding coefficients], but is probably better to catch that early?
 	if (buffer_length > GENERATION_MAX_PDU_SIZE) {
 		LOG_SESSION(LOG_WARNING, session,
 			"Received a source frame which is bigger than the maximum of %lu bytes",
-			(GENERATION_MAX_PDU_SIZE - sizeof(coded_payload_metadata_t)));
+			(GENERATION_MAX_PDU_SIZE - sizeof(*metadata)));
 		return -1;
 	}
 
 	metadata = (void*)buffer;
 	metadata->payload_type = htole16(be16toh(ether_type)); // 80211 is LE
 
-	memcpy(buffer + sizeof(coded_payload_metadata_t), payload,
+	memcpy(buffer + sizeof(*metadata), payload,
 		payload_length);
 
 	// 2. add the buffer (with prepended `coded_payload_metadata`) to
@@ -480,7 +480,7 @@ session_check_for_decoded_frames(session_t* session)
 	static u8 buffer[GENERATION_MAX_PDU_SIZE] = { 0 };
 	size_t buffer_length;
 
-	coded_payload_metadata_t* metadata;
+	struct coded_payload_metadata* metadata;
 	u8* payload;
 	size_t payload_length;
 
@@ -507,9 +507,9 @@ session_check_for_decoded_frames(session_t* session)
 		// below code is undoing this, and pulling out all the info.
 
 		metadata = (void*)buffer;
-		payload = buffer + sizeof(coded_payload_metadata_t);
+		payload = buffer + sizeof(*metadata);
 		payload_length
-			= buffer_length - sizeof(coded_payload_metadata_t);
+			= buffer_length - sizeof(*metadata);
 
 		// ieee 80211 is LE, while ieee 8023 is BE
 		u16 ether_type = htobe16(le16toh(metadata->payload_type));
@@ -521,7 +521,7 @@ session_check_for_decoded_frames(session_t* session)
 
 int
 session_decoder_add(session_t* session,
-	coded_packet_metadata_t* metadata,
+	struct coded_packet_metadata* metadata,
 	u8* payload,
 	size_t length)
 {
@@ -579,11 +579,11 @@ session_decoder_add(session_t* session,
  * @param ack flag if acknowledgment flag is to be set
  */
 static void
-session_packet_metadata(coded_packet_metadata_t* metadata,
+session_packet_metadata(struct coded_packet_metadata* metadata,
 	session_t* session,
 	bool ack)
 {
-	metadata->sid = *(session_get_id(session));
+	metadata->session_id = *(session_get_id(session));
 	// below: will be set by generation_next_encoded_frame() afterwards
 	metadata->generation_sequence = 0;
 	metadata->window_id = generation_window_id(&session->generations_list);
@@ -597,7 +597,7 @@ session_transmit_encoded_frame(session_t* session, generation_t* generation)
 {
 	NCM_GENERATION_STATUS status;
 	static u8 buffer[GENERATION_MAX_PDU_SIZE] = { 0 };
-	static coded_packet_metadata_t metadata;
+	static struct coded_packet_metadata metadata;
 	size_t length;
 
 	session_packet_metadata(&metadata, session, 0);
@@ -618,16 +618,16 @@ session_transmit_encoded_frame(session_t* session, generation_t* generation)
 int
 session_transmit_ack_frame(session_t* session)
 {
-	static coded_packet_metadata_t metadata;
-	ack_payload_t* payload;
+	static struct coded_packet_metadata metadata;
+	struct ack_payload* payload;
 	size_t payload_length;
 
-	payload_length = sizeof(ack_payload_t) * session->context->generation_window_size;
+	payload_length = sizeof(*payload) * session->context->generation_window_size;
 
 	payload = calloc(1, payload_length);
 	if (payload == NULL) {
 		DIE_SESSION(session,
-			"Failed session_transmit_ack_frame() to calloc() ack_payload_t");
+			"Failed session_transmit_ack_frame() to calloc() ack_payload");
 	}
 
 	generation_write_ack_payload(&session->generations_list, payload);

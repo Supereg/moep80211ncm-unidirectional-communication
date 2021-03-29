@@ -27,9 +27,9 @@ static u8 address_src[IEEE80211_ALEN] = { 0x41, 0x41, 0x41, 0x41, 0x41, 0x41 };
 static u8 address_intermediate[IEEE80211_ALEN] = { 0x42, 0x42, 0x42, 0x42, 0x42, 0x42 };
 static u8 address_dst[IEEE80211_ALEN] = { 0x43, 0x43, 0x43, 0x43, 0x43, 0x43 };
 
-session_subsystem_context_t* src_context;
-session_subsystem_context_t* intermediate_context;
-session_subsystem_context_t* dst_context;
+struct session_subsystem_context* src_context;
+struct session_subsystem_context* intermediate_context;
+struct session_subsystem_context* dst_context;
 
 /**
  * Configuration for a single execution of a random packet test.
@@ -151,7 +151,7 @@ START_TEST(test_session_creation_and_find)
 	session_t* created_dst_session;
 	session_t* created_intermediate_session;
 	session_t* tmp_session;
-	session_id expected_id;
+	struct session_id expected_id;
 
 	memcpy(expected_id.src_address, address_src, IEEE80211_ALEN);
 	memcpy(expected_id.dst_address, address_dst, IEEE80211_ALEN);
@@ -168,7 +168,7 @@ START_TEST(test_session_creation_and_find)
 	ck_assert_int_eq(created_src_session->type, SOURCE);
 	ck_assert_mem_eq(&created_src_session->session_id,
 		&expected_id,
-		sizeof(session_id));
+		sizeof(struct session_id));
 
 	// calling session_register on an registered session should just return that
 	tmp_session = session_register(src_context, address_src, address_dst);
@@ -196,7 +196,7 @@ START_TEST(test_session_creation_and_find)
 		DESTINATION); // testing proper session type detection
 	ck_assert_mem_eq(&created_dst_session->session_id,
 		&expected_id,
-		sizeof(session_id));
+		sizeof(struct session_id));
 
 	// now test creation of session for intermediate nodes
 	created_intermediate_session = session_register(
@@ -207,7 +207,7 @@ START_TEST(test_session_creation_and_find)
 		INTERMEDIATE); // testing proper session type detection
 	ck_assert_mem_eq(&created_intermediate_session->session_id,
 		&expected_id,
-		sizeof(session_id));
+		sizeof(struct session_id));
 }
 END_TEST
 
@@ -221,7 +221,7 @@ START_TEST(test_session_log)
 	char* cmp1 = "414141414141434343434343,0,0,0\n";
 	char* red1 = NULL;
 	size_t len1;
-	session_id expected_id;
+	struct session_id expected_id;
 
 	memcpy(expected_id.src_address, address_src, IEEE80211_ALEN);
 	memcpy(expected_id.dst_address, address_dst, IEEE80211_ALEN);
@@ -233,7 +233,7 @@ START_TEST(test_session_log)
 	ck_assert_int_eq(created_src_session->type, SOURCE);
 	ck_assert_mem_eq(&created_src_session->session_id,
 		&expected_id,
-		sizeof(session_id));
+		sizeof(struct session_id));
 
 	fn = session_get_log_fn(created_src_session);
 	session_log_state(src_context);
@@ -262,7 +262,7 @@ START_TEST(test_session_coding_simple_two_nodes)
 	char* example1 = "Hello World, whats up with you all?";
 	char* example2 = "Hello World2!";
 
-	os_frame_entry_t* received;
+	struct os_frame_entry* received;
 
 	// those configurations below are expected to successfully run the unit test
 	*(int*)&src_context->generation_size = 2;
@@ -277,7 +277,7 @@ START_TEST(test_session_coding_simple_two_nodes)
 	ck_assert_int_eq(destination->type, DESTINATION);
 	ck_assert_mem_eq(&source->session_id,
 		&destination->session_id,
-		sizeof(session_id));
+		sizeof(struct session_id));
 
 	// defines involved sessions, and forwarding behavior for
 	// the rtx callback (check_rtx_frame_callback)
@@ -459,7 +459,7 @@ START_TEST(test_session_coding_random_two_nodes)
 	struct generated_packet *generated_packet, *tmp;
 	u32 expected_packet_num;
 	u32 packet_num = 0;
-	os_frame_entry_t* os_frame;
+	struct os_frame_entry* os_frame;
 
 	// seed is logged below, in order to reproduce tests
 	seed = time(NULL);
