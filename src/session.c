@@ -425,13 +425,17 @@ session_space_remaining(session_t* session)
 }
 
 int
-session_context_min_space_remaining(struct session_subsystem_context* context)
+session_min_encoding_space_remaining(struct session_subsystem_context* context)
 {
-	session_t* s;
-	int ret = GENERATION_SIZE;
+	session_t* session;
+	int ret = context->generation_size * context->generation_window_size;
 
-	list_for_each_entry (s, &context->sessions_list, list) {
-		ret = min(session_space_remaining(s), ret);
+	list_for_each_entry (session, &context->sessions_list, list) {
+		if (session->type != SOURCE) {
+			continue;
+		}
+
+		ret = min(session_space_remaining(session), ret);
 	}
 
 	return ret;
