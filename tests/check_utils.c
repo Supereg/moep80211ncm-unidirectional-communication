@@ -150,9 +150,9 @@ test_init(session_t* source,
 {
 	struct check_test_context* context;
 
-	assert(session_get_type(source) == SOURCE);
-	assert(session_get_type(intermediate) == INTERMEDIATE);
-	assert(session_get_type(destination) == DESTINATION);
+	ck_assert(source != NULL && session_get_type(source) == SOURCE);
+	ck_assert(intermediate == NULL || session_get_type(intermediate) == INTERMEDIATE);
+	ck_assert(destination != NULL && session_get_type(destination) == DESTINATION);
 
 	context = calloc(1, sizeof(*context));
 	if (context == NULL) {
