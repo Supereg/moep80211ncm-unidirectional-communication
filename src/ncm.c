@@ -771,7 +771,7 @@ tx_decoded_frame(struct session_subsystem_context* context,
 
 static int _set_tap_status(void *data, int status)
 {
-	status = status && session_context_min_space_remaining(session_context);
+	status = status && session_min_encoding_space_remaining(session_context);
 	return moep_dev_set_rx_status(cfg.tap.dev, status);
 }
 

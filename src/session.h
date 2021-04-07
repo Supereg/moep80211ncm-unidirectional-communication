@@ -340,12 +340,15 @@ void
 session_log_state(struct session_subsystem_context* context);
 
 /**
- * Returns the sum of the remaining space of all generations of all sessions
+ * Loops over all registered **SOURCE** sessions in the given session context,
+ * returning the amount of free space remaining of the session
+ * with the minimum space remaining (= frame count).
  *
- * @param context - session context
- * @return sum
+ * @param context - `session_subsystem_context` containing all
+ *  session related configurations and state.
+ * @return Minimum over all SOURCE sessions of free space.
  */
 int
-session_context_min_space_remaining(struct session_subsystem_context* context);
+session_min_encoding_space_remaining(struct session_subsystem_context* context);
 
 #endif //SESSION_H

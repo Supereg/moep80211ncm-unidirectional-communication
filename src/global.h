@@ -21,7 +21,7 @@
 #define GENERATION_RTX_MIN_TIMEOUT	5
 
 #define GENERATION_MAX_WINDOW		32
-#define GENERATION_WINDOW		4
+#define GENERATION_WINDOW		8
 #define GENERATION_MAX_SIZE		254
 // TODO GENERATION_SIZE was previously defined for bidirectional session
 //  thus having 64 frames in each direction. One might want to half the
