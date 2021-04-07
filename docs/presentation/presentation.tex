@@ -1,0 +1,63 @@
+\documentclass[11pt]{beamer}
+
+\usepackage[utf8]{inputenc}
+
+\logo{\includegraphics[scale=.5]{TUM_Logo.eps}}
+\title[Short version]{Unidirectional NCM}
+\subtitle[short version]{Implementation}
+\date[2021]{Network Coding}
+\author[Andreas Bauer, Lion Steger]{Andreas Bauer, Lion Steger}
+\institute[Technische Universität München]{Technische Universität München}
+
+\begin{document}
+	\frame{\maketitle}
+	
+	\begin{frame}{Motivation}
+		\begin{itemize}
+			\item if two hosts discover each other as neighbors, a session is created
+			\item sessions are always bidirectional
+			\item coding matrices are split for the two directions
+			\item this might be overly complicated?
+		\end{itemize}
+	\end{frame}
+
+	\begin{frame}{Timeline}
+		\begin{itemize}
+			\item Understanding the code
+			\item Writing a "simulator" which does encoding/decoding on one device
+			\item Rewriting the code to our needs
+			\item Leaving the simulator behind in favor of unit tests
+			\item Integrating the new session/generation functionality into the existing code
+		\end{itemize}
+	\end{frame}
+
+	\begin{frame}{Our (Non-)Changes}
+		Implementing this seems simple... right?
+		\begin{itemize}
+			\item Use the full coding matrix $\rightarrow$ works even without changes to librlnc!
+			\item rewrite most of the calls to the session and generation API:
+			\begin{itemize}
+				\item acknowledgment and re-transmission scheme
+				\item generation window advancement
+				\item packet statistics
+				\item header structures
+				\item utility functions (e.g. remaining space)
+			\end{itemize}
+		\end{itemize}
+	\end{frame}
+
+	\begin{frame}{Our Acknowledgment/Advancement Scheme}
+		\begin{itemize}
+			\item each encoded packet triggers an acknowledgment
+			\item acknowledgments transport the lowest sequence number of the window and the receiver dimension
+			\item if the generation window is out of sync for receiver and sender, it is fixed by advancing to the next generation or discarding it
+		\end{itemize}
+	\end{frame}
+
+	\begin{frame}{Difficulties}
+		\begin{itemize}
+			\item Unit-Tests with timers
+			\item Understanding the code
+		\end{itemize}
+	\end{frame}
+\end{document}
