@@ -20,11 +20,12 @@
 			\item two neighbors communicating form a session
 			\item sessions are always bidirectional (have two flows in opposite directions)
 			\item multiple packets are called a generation
+			\item sessions manage multiple generations inside a generation window
 			\item sender and receiver hold state $ \begin{bmatrix}
 				C \\ B
 			\end{bmatrix} = \begin{bmatrix}
 				1 C \\ A C
-			\end{bmatrix} $ where $ C $ is the coding matrix
+			\end{bmatrix} $ per generation where $ C $ is the coding matrix
 			\item coding matrix are split for the two directions, $A$ accordingly
 			\[
 			\left[
@@ -42,7 +43,7 @@
 		\begin{itemize}
 			\item two neighbors communicating form two sessions
 			\item one session for each unidirectional information flow
-			\item coding matrix is used for only one direction without changing the split up form (one side is just 0 width)
+			\item coding matrix is used for only one direction by setting the dimension of one side to zero
 			\[
 			\left[
 			\begin{array}{c|c}
@@ -51,17 +52,16 @@
 			\end{array}
 			\right]
 			\]
-			\item works just as fine!
 		\end{itemize}
 	\end{frame}
 
 	\begin{frame}{Timeline}
 		\begin{itemize}
-			\item Understand the code
-			\item Begin implementing our own, unidirectional versions of \texttt{generation.c} and \texttt{session.c}
-			\item Write unit tests that run the code on one device locally instead of real communication over radio
-			\item Leverage various tools such as CI, code coverage tests and memory checks
-			\item Integrating the new session/generation functionality into the existing code and conduct real-world tests
+			\item understand the code
+			\item begin implementing our own, unidirectional versions of \texttt{generation.c} and \texttt{session.c}
+			\item write unit tests that run the code on one device locally instead of real communication over radio
+			\item leverage various tools such as CI, code coverage tests and memory checks
+			\item integrating the new session/generation functionality into the existing code and conduct real-world tests
 		\end{itemize}
 	\end{frame}
 
@@ -77,6 +77,7 @@
 				\item packet statistics
 				\item header structures
 				\item utility functions (e.g. remaining space)
+				\item meta structures used to avoid dependencies to old ncm code
 			\end{itemize}
 		\end{itemize}
 	\end{frame}
@@ -85,7 +86,7 @@
 		\begin{itemize}
 			\item each encoded packet triggers an acknowledgment
 			\item acknowledgments transport the lowest sequence number of the window and the receiver dimension
-			\item coded packets for every generation are sent until they are acknowledged (\color{red} TODO: is this true?)
+			\item coded packets for every generation are sent until they are acknowledged
 		\end{itemize}
 	\end{frame}
 
