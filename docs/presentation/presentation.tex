@@ -2,6 +2,10 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage{tikz}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{color}
+\usepackage{xcolor}
 
 \usetikzlibrary{calc, positioning, arrows}
 
@@ -66,7 +70,7 @@
 	\end{frame}
 
 	\begin{frame}{Our (Non-)Changes}
-		Implementing this seems simple... right?
+		Implementing this seems simple\ldots right?
 		\begin{itemize}
 			\item using the full coding matrix without changes to librlnc!
 			\item no changes to the neighbor/link quality functionality or main event loop files
@@ -76,21 +80,31 @@
 				\item generation window advancement
 				\item packet statistics
 				\item header structures
-				\item utility functions (e.g. remaining space)
-				\item meta structures used to avoid dependencies to old ncm code
+				\item utility functions (e.g.\ remaining space)
+				\item meta structures used to avoid dependencies to ncm code
 			\end{itemize}
 		\end{itemize}
 	\end{frame}
 
-	\begin{frame}{Acknowledgment/Re-Transmission Scheme}
+	\begin{frame}{Acknowledgment Scheme}
+		Fundamental principles:
 		\begin{itemize}
-			\item each encoded packet triggers an acknowledgment
-			\item acknowledgments transport the lowest sequence number of the window and the receiver dimension
-			\item coded packets for every generation are sent until they are acknowledged
+			\item coded packets are sent for every generation until they are acknowledged
+			\item each received coded packet triggers an acknowledgment
+			\item acknowledgments contain the dimensions of all generations in the current window
+			% using this state info, sender node can determin if it still needs to transmit coded packets
 		\end{itemize}
 	\end{frame}
 
-	\begin{frame}{Window Advancement Scheme}
+	\begin{frame}{Generation Advancement Scheme}
+		A generation is considered complete if:
+		\begin{itemize}
+			\item \ldots all packets are sent and acknowledged (Source)
+			\item \ldots all packets are received and decoded (Destination)
+		\end{itemize}
+	\end{frame}
+
+	\begin{frame}{Generation Advancement Scheme}
 		\begin{figure}
 			\centering
 			\begin{tikzpicture}[>=stealth',t/.style={minimum width=1cm, minimum height=0.7cm}]
@@ -98,10 +112,10 @@
 				\node[draw,fill=red] at (0,0.5) {2};
 				\node[draw,fill=red] (s) at (0,1) {1};
 				\node[draw] at (0,1.5) {0};
-				\node[draw,fill=red] at (4,0) {3};
-				\node[draw,fill=red] at (4,0.5) {2};
-				\node[draw] at (4,1) {1};
-				\node[draw] at (4,1.5) {0};
+				\node[draw] at (4,0) {3};
+				\node[draw] at (4,0.5) {2};
+				\node[draw,fill=red] at (4,1) {1};
+				\node[draw,fill=red] at (4,1.5) {0};
 				\coordinate (r) at (3.8,1);
 				\draw[->] (s) -- node[above] {coded packet} (s-|r);
 				\node[] at (2,2.5)  {A};
@@ -110,13 +124,13 @@
 				\node[draw,fill=red] at (0,3.5) {2};
 				\node[draw,fill=red] (s) at (0,4) {1};
 				\node[draw] at (0,4.5) {0};
-				\node[draw] at (4,3) {3};
-				\node[draw] at (4,3.5) {2};
-				\node[draw,fill=red] at (4,4) {1};
-				\node[draw,fill=red] at (4,4.5) {0};
+				\node[draw,fill=red] at (4,3) {3};
+				\node[draw,fill=red] at (4,3.5) {2};
+				\node[draw] at (4,4) {1};
+				\node[draw] at (4,4.5) {0};
 				\coordinate (r) at (3.8,1);
 				\draw[->] (s) -- node[above] {coded packet} (s-|r);
-				\node[] at (2,-0.5)  {B};
+				\node[] at (2,-0.5)  {C};
 				
 				\node[draw] at (6,0) {3};
 				\node[draw,fill=red] at (6,0.5) {2};
@@ -128,20 +142,20 @@
 				\node[draw,fill=red] at (10,1.5) {0};
 				\coordinate (r) at (9.8,1);
 				\draw[<-] (s) -- node[above] {acknowledgment} (s-|r);
-				\node[] at (8,2.5)  {C};
+				\node[] at (8,2.5)  {B};
 				
 				\node[draw] at (6,3) {3};
-				\node[draw] at (6,3.5) {2};
+				\node[draw,fill=red] at (6,3.5) {2};
 				\node[draw,fill=red] (s) at (6,4) {1};
-				\node[draw,fill=red] at (6,4.5) {0};
-				\node[draw] at (10,3) {3};
+				\node[draw] at (6,4.5) {0};
+				\node[draw,fill=red] at (10,3) {3};
 				\node[draw,fill=red] at (10,3.5) {2};
-				\node[draw,fill=red] at (10,4) {1};
+				\node[draw] at (10,4) {1};
 				\node[draw] at (10,4.5) {0};
 				\coordinate (r) at (9.8,1);
-				\draw[<-] (s) -- node[above] {acknowlegment} (s-|r);
+				\draw[<-] (s) -- node[above] {acknowledgment} (s-|r);
 				\node[] at (8,-0.5)  {D};
-			\end{tikzpicture}
+			\end{tikzpicture}\label{fig:figure}
 		\end{figure}
 	\end{frame}
 

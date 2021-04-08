@@ -10,6 +10,12 @@
 *.libs
 *.deps
 
+**.aux
+**.snm
+**.nav
+**.out
+**.toc
+
 **/*.cache
 
 .idea
