@@ -784,10 +784,28 @@ generation_decoder_add(generation_t* generation, u8* buffer, size_t length)
 	return GENERATION_STATUS_SUCCESS;
 }
 
+static bool
+window_contains_id(u16 window_id, u8 window_size, u16 id)
+{
+	u16 upper_boundary;
+	upper_boundary = window_id + (u16) window_size;
+
+	if (window_id < upper_boundary) {
+		// no overflow happened
+		return id >= window_id && id < upper_boundary;
+	} else if (upper_boundary < window_id) {
+		// upper_boundary overflowed
+		return id >= window_id || id < upper_boundary;
+	} else {
+		assert(false && "window_size must be bigger than 0");
+	}
+}
+
 void
 align_generation_window(struct list_head* generation_list,
 	struct coded_packet_metadata* metadata)
 {
+	const int MAX_WINDOW_DELTA = 3 * metadata->window_size;
 	u16 local_window_id;
 	u16 window_id_delta;
 	generation_t* entry;
@@ -813,7 +831,7 @@ align_generation_window(struct list_head* generation_list,
 		// TODO this could be reengineered such that
 		//  it doesn't rely on the window size,
 		//  but on a fixed interval.
-		if (window_id_delta >= metadata->window_size) {
+		if (window_id_delta >= MAX_WINDOW_DELTA) {
 			// we have non overlapping generation windows!
 			// as sequence numbers are uint16 and wrap around,
 			// we CAN't tell which window_id is bigger
@@ -828,10 +846,10 @@ align_generation_window(struct list_head* generation_list,
 		}
 
 		// our window_id is smaller, if the remote window_id is
-		// contained in our current generation window!
+		// contained in our current generation window + (buffer)!
 		// We checked non equality AND overlapping windows above!
 		// Those two assumptions are key for our logic to work!
-		if (NULL != generation_find( generation_list, metadata->window_id)) {
+		if (window_contains_id(local_window_id, MAX_WINDOW_DELTA, metadata->window_id)) {
 			// the remote window is further ahead.
 			// If we are a SOURCE this means we probably
 			// lost some ACK packet.
@@ -853,7 +871,7 @@ align_generation_window(struct list_head* generation_list,
 
 			// sanity checking that we don't have
 			// double overlapping windows
-			// (happens if you choose too big generation window)
+			// (happens if you WAY choose too big generation window)
 			assert(NULL == generation_find(
 			       generation_list, metadata->window_id + metadata->window_size));
 
